@@ -4,7 +4,7 @@ import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useToast } from '@nuxt/ui/composables/useToast'
 import type { Connection, XYPosition } from '@xyflow/vue'
 import {
-  createNode, instantiateComponent, isTrigger, nodeNames, sites, validateConnections,
+  createNode, instantiateComponent, isTrigger, nodeNames, sites, validateConnections, workflowSchema,
   type FlowEdge, type FlowNode, type NodeComponent, type Workflow
 } from '../../../shared/workflow'
 import { copy, dateTime, desktop, errorMessage, nodeDragType, nodeIcons, useDesktop } from '../model'
@@ -29,6 +29,7 @@ const node = computed(() => selection.value.nodes.length === 1
   ? draft.value?.nodes.find((node) => node.id === selection.value.nodes[0]) : undefined)
 const preview = computed(() => previewType.value && createNode(previewType.value, '', 0, 0))
 const hasTrigger = computed(() => draft.value?.nodes.some(isTrigger))
+const canRun = computed(() => saved.value?.enabled ? saved.value.nodes.some(isTrigger) : hasTrigger.value)
 const libraryGroups = [
   { label: '触发器', types: ['manual', 'interval', 'ip'] },
   { label: '逻辑与执行', types: ['condition', 'http', 'delay', 'data', 'notification'] }
@@ -53,8 +54,11 @@ watch(saved, (current, previous) => {
     nameError.value = ''
     select('')
   }
-  if (current.id !== previous?.id || !draft.value || JSON.stringify(draft.value) === JSON.stringify(previous) ||
-      current.enabled !== previous?.enabled) draft.value = copy(current)
+  if (current.id !== previous?.id || !draft.value || JSON.stringify(draft.value) === JSON.stringify(previous)) {
+    draft.value = copy(current)
+  } else {
+    draft.value.enabled = current.enabled
+  }
 }, { immediate: true })
 
 onBeforeRouteLeave(() => !dirty.value || window.confirm('有未保存的修改，确定离开？'))
@@ -77,7 +81,7 @@ function updateSelection(current: typeof selection.value): void {
 function canAdd(type: FlowNode['type']): boolean {
   const flow = draft.value
   const isTriggerType = isTrigger({ type })
-  return Boolean(flow && !flow.enabled && !busy.value && !(isTriggerType && hasTrigger.value))
+  return Boolean(flow && !busy.value && !(isTriggerType && hasTrigger.value))
 }
 
 function startDrag(event: DragEvent, type: FlowNode['type']): void {
@@ -104,7 +108,7 @@ function addNode(source: FlowNode['type'] | NodeComponent, position?: XYPosition
 
 function connect(connection: Connection): void {
   const flow = draft.value
-  if (!flow || flow.enabled || busy.value) return
+  if (!flow || busy.value) return
   const edge: FlowEdge = {
     id: crypto.randomUUID(), from: connection.source, to: connection.target,
     port: (connection.sourceHandle ?? 'next') as FlowEdge['port']
@@ -118,7 +122,7 @@ function connect(connection: Connection): void {
 }
 
 function move(positions: { id: string; x: number; y: number }[]): void {
-  if (!draft.value || draft.value.enabled || busy.value) return
+  if (!draft.value || busy.value) return
   for (const point of positions) {
     const current = draft.value.nodes.find((item) => item.id === point.id)
     if (current) Object.assign(current, point)
@@ -126,7 +130,7 @@ function move(positions: { id: string; x: number; y: number }[]): void {
 }
 
 function changeNode(updated: FlowNode): void {
-  if (!draft.value || draft.value.enabled || busy.value) return
+  if (!draft.value || busy.value) return
   draft.value.nodes = draft.value.nodes.map((item) => item.id === updated.id ? updated : item)
 }
 
@@ -156,7 +160,7 @@ async function saveComponent(): Promise<void> {
 }
 
 function removeSelection({ nodes, edges } = selection.value): void {
-  if (!draft.value || draft.value.enabled || busy.value) return
+  if (!draft.value || busy.value) return
   draft.value.nodes = draft.value.nodes.filter((node) => !nodes.includes(node.id))
   draft.value.edges = draft.value.edges.filter((edge) => !edges.includes(edge.id) &&
     !nodes.includes(edge.from) && !nodes.includes(edge.to))
@@ -165,7 +169,8 @@ function removeSelection({ nodes, edges } = selection.value): void {
 
 async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<void> {
   if (!draft.value || busy.value) return
-  if (action !== 'disable' && !draft.value.name.trim()) {
+  const runSaved = action === 'run' && saved.value?.enabled
+  if (action !== 'disable' && !runSaved && !draft.value.name.trim()) {
     nameError.value = '请输入流程名称'
     return
   }
@@ -174,13 +179,18 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
   try {
     if (action === 'save' || (action === 'enable' && dirty.value)) {
       await desktop.save(snapshot)
+      if (draft.value?.id === snapshot.id) {
+        draft.value = workflowSchema.parse({ ...snapshot, enabled: draft.value.enabled })
+      }
       await store.refresh()
-      if (saved.value) draft.value = copy(saved.value)
     }
-    if (action === 'enable' || action === 'disable') await desktop.enable(snapshot.id, action === 'enable')
+    if (action === 'enable' || action === 'disable') {
+      await desktop.enable(snapshot.id, action === 'enable')
+      await store.refresh()
+    }
     if (action === 'run') {
-      const { id, enabled, name, nodes, edges } = snapshot
-      await desktop.run(id, enabled ? undefined : { name, nodes, edges })
+      const { id, name, nodes, edges } = snapshot
+      await desktop.run(id, runSaved ? undefined : { name, nodes, edges })
       await store.refresh()
     }
   } catch (cause) {
@@ -198,7 +208,7 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
         <RouterLink to="/" class="back-link" aria-label="返回流程"><UIcon name="i-lucide-arrow-left" /></RouterLink>
         <div class="editor-name">
           <label for="flow-name">流程名称</label>
-          <input id="flow-name" v-model="draft.name" :disabled="draft.enabled || busy" maxlength="100"
+          <input id="flow-name" v-model="draft.name" :disabled="busy" maxlength="100"
             :aria-invalid="Boolean(nameError)" :aria-describedby="nameError ? 'flow-name-error' : undefined"
             @input="nameError = ''" />
           <p v-if="nameError" id="flow-name-error" class="field-error" role="alert">{{ nameError }}</p>
@@ -206,10 +216,10 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
         <span v-if="dirty" class="muted unsaved">未保存</span>
       </div>
       <div class="actions">
-        <UButton color="neutral" variant="outline" icon="i-lucide-play" :disabled="busy || !hasTrigger"
+        <UButton color="neutral" variant="outline" icon="i-lucide-play" :disabled="busy || !canRun"
           :loading="pending === 'run'" @click="perform('run')">手动运行</UButton>
         <UButton color="neutral" variant="outline" icon="i-lucide-history" :to="{ name: 'runs', query: { flow: draft.id } }">运行记录</UButton>
-        <UButton v-if="!draft.enabled" color="neutral" variant="outline" icon="i-lucide-save"
+        <UButton color="neutral" variant="outline" icon="i-lucide-save"
           :disabled="busy || !dirty" @click="perform('save')">保存</UButton>
         <UButton :color="draft.enabled ? 'neutral' : 'primary'" :icon="draft.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
           :disabled="busy" @click="perform(draft.enabled ? 'disable' : 'enable')">{{ draft.enabled ? '停用' : '启用' }}</UButton>
@@ -250,11 +260,11 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
           <span><UIcon name="i-lucide-workflow" /> 流程画布</span>
           <div class="actions">
             <span class="muted">{{ draft.nodes.length }} 个节点 · {{ draft.edges.length }} 条连线</span>
-            <UButton v-if="!draft.enabled && selection.nodes.length > 1" color="error" variant="soft" size="xs"
+            <UButton v-if="selection.nodes.length > 1" color="error" variant="soft" size="xs"
               icon="i-lucide-trash-2" :disabled="busy" @click="removeSelection()">删除所选（{{ selection.nodes.length }}）</UButton>
           </div>
         </div>
-        <FlowCanvas :key="draft.id" :selection="selection" :graph="draft" :readonly="draft.enabled || busy" :dragged-type="draggedType"
+        <FlowCanvas :key="draft.id" :selection="selection" :graph="draft" :readonly="busy" :dragged-type="draggedType"
           :allow-save-component="!busy" @update:selection="updateSelection" @connect="connect" @move="move" @drop-node="addNode"
           @pane-click="previewType = undefined" @remove-selection="removeSelection" @save-component="openComponentDialog" />
       </section>
@@ -271,22 +281,22 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
         <div v-else-if="node" class="inspector-content">
           <div class="section-row">
             <h2><span class="node-icon" :class="node.type"><UIcon :name="nodeIcons[node.type]" mode="svg" /></span>{{ nodeNames[node.type] }}</h2>
-            <UButton v-if="!draft.enabled" color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除节点"
+            <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除节点"
               :disabled="busy" @click="removeSelection()" />
           </div>
           <div class="fields node-name-field">
             <label for="node-name">节点名称</label>
-            <UInput id="node-name" :model-value="node.name ?? ''" :maxlength="100" :disabled="draft.enabled || busy"
+            <UInput id="node-name" :model-value="node.name ?? ''" :maxlength="100" :disabled="busy"
               class="full-width" @update:model-value="changeNode({ ...node, name: String($event) || undefined })" />
           </div>
-          <NodeConfig :key="node.id" :node="node" :graph="draft" :readonly="draft.enabled || busy" @change="changeNode" />
+          <NodeConfig :key="node.id" :node="node" :graph="draft" :readonly="busy" @change="changeNode" />
         </div>
         <div v-else-if="selection.nodes.length > 1" class="inspector-content">
           <h2>已选中 {{ selection.nodes.length }} 个节点</h2>
         </div>
         <div v-else-if="selection.edges.length" class="inspector-content">
           <div class="section-row"><h2>{{ selection.edges.length === 1 ? '连线' : '已选中 ' + selection.edges.length + ' 条连线' }}</h2>
-            <UButton v-if="!draft.enabled" color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除连线"
+            <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除连线"
               :disabled="busy" @click="removeSelection()" />
           </div>
         </div>

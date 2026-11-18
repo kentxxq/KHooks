@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import appIcon from '../../../resources/icon.png'
+import productionIcon from '../../../resources/icon.png'
+import developmentIcon from '../../../resources/icon-dev.png'
 import { desktop, useDesktop } from './model'
 
+const appIcon = import.meta.env.DEV ? developmentIcon : productionIcon
 const route = useRoute()
 const store = useDesktop()
 

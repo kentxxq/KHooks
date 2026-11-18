@@ -12,9 +12,11 @@ import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc
 import {
   appUserModelId, developmentAppUserModelId, developmentProductName, productName, windowsDevelopmentRuntimePrefix
 } from '../shared/app-identity'
-import iconPath from '../../resources/icon.png?asset'
+import productionIconPath from '../../resources/icon.png?asset'
+import developmentIconPath from '../../resources/icon-dev.png?asset'
 
 const development = !app.isPackaged
+const iconPath = development ? developmentIconPath : productionIconPath
 const appTitle = development ? developmentProductName : productName
 const windows = process.platform === 'win32'
 const brandedDevelopment = development && windows && basename(dirname(process.execPath)).startsWith(windowsDevelopmentRuntimePrefix)

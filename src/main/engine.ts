@@ -17,6 +17,12 @@ function ipSiteKey(graph?: Graph): string | undefined {
   return node && JSON.stringify(node.sites)
 }
 
+function scheduleKey(graph?: Graph): string | undefined {
+  const trigger = graph?.nodes.find(isTrigger)
+  if (trigger?.type !== 'ip' && trigger?.type !== 'interval') return
+  return JSON.stringify([trigger.id, trigger.type, trigger.seconds, trigger.type === 'ip' ? trigger.sites : null])
+}
+
 function recordIpSample(state: Storage['state'], id: string, results: IpSample['results']): IpSample {
   const previousIp = Object.hasOwn(state.baselines, id) ? state.baselines[id] : null
   const sample = tally(results, previousIp, new Date().toISOString())
@@ -56,28 +62,33 @@ export class Engine {
   }
 
   private schedule(flow: Workflow, immediateIp: boolean): void {
-    if (!flow.enabled || this.suspended || this.schedules.has(flow.id)) return
+    const { id } = flow
+    if (!flow.enabled || this.suspended || this.schedules.has(id)) return
     const trigger = flow.nodes.find(isTrigger)
     if (trigger?.type !== 'ip' && trigger?.type !== 'interval') return
+    const delay = trigger.seconds * 1000
     const schedule: Schedule = {}
-    this.schedules.set(flow.id, schedule)
+    this.schedules.set(id, schedule)
     const tick = async () => {
-      if (this.schedules.get(flow.id) !== schedule) return
+      if (this.schedules.get(id) !== schedule) return
       try {
-        await this.exclusive(flow.id, async () => {
-          if (trigger.type === 'interval') {
-            await this.execute(flow, trigger, { triggeredAt: new Date().toISOString() })
-          } else {
-            await this.poll(flow, trigger, schedule)
+        await this.exclusive(id, async () => {
+          const current = this.store.state.workflows.find((item) => item.id === id)
+          if (!current?.enabled) return
+          const currentTrigger = current.nodes.find(isTrigger)
+          if (currentTrigger?.type === 'interval') {
+            await this.execute(current, currentTrigger, { triggeredAt: new Date().toISOString() })
+          } else if (currentTrigger?.type === 'ip') {
+            await this.poll(id, currentTrigger, schedule)
           }
         }, true)
       } catch (error) {
         this.report((error as Error).message)
       } finally {
-        if (this.schedules.get(flow.id) === schedule) schedule.timer = setTimeout(tick, trigger.seconds * 1000)
+        if (this.schedules.get(id) === schedule) schedule.timer = setTimeout(tick, delay)
       }
     }
-    schedule.timer = setTimeout(tick, trigger.type === 'ip' && immediateIp ? 0 : trigger.seconds * 1000)
+    schedule.timer = setTimeout(tick, trigger.type === 'ip' && immediateIp ? 0 : delay)
   }
 
   shutdown(): void {
@@ -92,18 +103,23 @@ export class Engine {
 
   async save(input: Workflow): Promise<void> {
     const flow = workflowSchema.parse({ ...input, enabled: false })
-    const error = validateConnections(flow)
-    if (error) throw new Error(error)
-    await this.store.change((draft) => {
+    const reschedule = await this.store.change((draft) => {
       const previous = draft.workflows.find((item) => item.id === flow.id)
-      if (previous?.enabled) throw new Error('请先停用流程')
+      flow.enabled = previous?.enabled ?? false
+      const error = flow.enabled ? validateWorkflow(flow) : validateConnections(flow)
+      if (error) throw new Error(error)
       if (ipSiteKey(previous) !== ipSiteKey(flow)) {
         delete draft.baselines[flow.id]
         delete draft.samples[flow.id]
       }
       if (previous) draft.workflows[draft.workflows.indexOf(previous)] = flow
       else draft.workflows.push(flow)
+      return flow.enabled && scheduleKey(previous) !== scheduleKey(flow)
     })
+    if (reschedule) {
+      this.unschedule(flow.id)
+      this.schedule(flow, true)
+    }
   }
 
   async enable(id: string, enabled: boolean): Promise<void> {
@@ -174,16 +190,16 @@ export class Engine {
     return Promise.all(trigger.sites.map((site) => probe(site, fetcher)))
   }
 
-  private async poll(flow: Workflow, trigger: IpNode, schedule: Schedule): Promise<void> {
+  private async poll(id: string, trigger: IpNode, schedule: Schedule): Promise<void> {
     const results = await this.probeIpSites(trigger)
-    if (this.schedules.get(flow.id) !== schedule) return
+    if (this.schedules.get(id) !== schedule) return
     const sample = await this.store.change((draft): IpSample | undefined => {
-      if (this.schedules.get(flow.id) !== schedule || !draft.workflows.find((item) => item.id === flow.id)?.enabled) return
-      return recordIpSample(draft, flow.id, results)
+      if (this.schedules.get(id) !== schedule || !draft.workflows.find((item) => item.id === id)?.enabled) return
+      return recordIpSample(draft, id, results)
     })
-    if (sample?.previousIp && sample.winnerIp && sample.winnerIp !== sample.previousIp &&
-        this.schedules.get(flow.id) === schedule && this.store.state.workflows.find((item) => item.id === flow.id)?.enabled) {
-      await this.execute(flow, trigger, sample)
+    if (sample?.previousIp && sample.winnerIp && sample.winnerIp !== sample.previousIp && this.schedules.get(id) === schedule) {
+      const current = this.store.state.workflows.find((item) => item.id === id)
+      if (current?.enabled) await this.execute(current, trigger, sample)
     }
   }
 

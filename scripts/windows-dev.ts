@@ -10,7 +10,7 @@ export async function prepareWindowsDevExecutable(root: string): Promise<string>
   const require = createRequire(import.meta.url)
   const source: string = require('electron')
   const sourceInfo = await stat(source)
-  const iconData = await readFile(join(root, 'resources', 'icon.ico'))
+  const iconData = await readFile(join(root, 'resources', 'icon-dev.ico'))
   const cacheKey = createHash('sha256')
     .update([developmentProductName, source, sourceInfo.mtimeMs, sourceInfo.size].join('\n'))
     .update(iconData)
