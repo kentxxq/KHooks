@@ -2,8 +2,8 @@
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import { useToast } from '@nuxt/ui/composables/useToast'
 import {
-  createSiteConfig, methods, nodeLabel, outputFields, parentsOf, siteId, sites,
-  type FlowNode, type Graph, type SiteConfig, type SiteId
+  conversions, createSiteConfig, fileEvents, isTrigger, methods, nodeLabel, outputFields, parentsOf, siteId, sites, systemEvents,
+  type FlowNode, type Graph, type Rule, type SiteConfig, type SiteId
 } from '../../../shared/workflow'
 import { copy, desktop, errorMessage } from '../model'
 import NotificationBody from './NotificationBody.vue'
@@ -17,11 +17,19 @@ const refField = ref('')
 const notificationTitle = useTemplateRef<{ inputRef?: HTMLInputElement }>('notificationTitle')
 const notificationBody = useTemplateRef('notificationBody')
 
-const fieldGroups = computed(() => parentsOf(props.graph, props.node.id).map((node) => ({
-  id: node.id,
-  label: nodeLabel(props.graph, node),
-  fields: outputFields(node).map((field) => ({ value: node.id + '.' + field.key, label: field.label }))
-})))
+const fieldGroups = computed(() => {
+  const parents = parentsOf(props.graph, props.node.id)
+  return parents.map((node, index) => {
+    const next = parents[index - 1] ?? props.node
+    const failure = props.graph.edges.some((edge) => edge.from === node.id && edge.to === next.id && edge.port === 'error')
+    const fields = failure ? [
+      { key: 'error.message', label: '错误消息' }, { key: 'error.attempts', label: '尝试次数' },
+      ...(node.type === 'http' ? [{ key: 'error.status', label: 'HTTP 状态码' }] : [])
+    ] : outputFields(node)
+    return { id: node.id, label: nodeLabel(props.graph, node),
+      fields: fields.map((field) => ({ value: node.id + '.' + field.key, label: field.label })) }
+  })
+})
 const fieldValues = computed(() => new Set(fieldGroups.value.flatMap((group) => group.fields.map((field) => field.value))))
 const notificationFields = computed<{ id: string; label: string }[]>((previous) => {
   const fields = fieldGroups.value.flatMap((group) => group.fields.map((field) => ({
@@ -32,20 +40,22 @@ const notificationFields = computed<{ id: string; label: string }[]>((previous) 
     field.id === previous[index].id && field.label === previous[index].label)) return previous
   return fields
 })
-const conditionField = computed({
-  get: () => props.node.type === 'condition' ? props.node.field : '',
-  set: (field: string) => {
-    if (props.node.type === 'condition') change(props.node, { field })
-  }
-})
-const hasTemplateFields = computed(() => props.node.type === 'http' || props.node.type === 'data')
+const conditionRules = computed<Rule[]>(() => props.node.type === 'condition'
+  ? props.node.group?.rules ?? [asRule(props.node)] : [])
+const hasTemplateFields = computed(() => ['http', 'data', 'fileRead', 'fileWrite', 'llm'].includes(props.node.type))
+type Action = Extract<FlowNode, { retry?: unknown }>
+const actionNode = computed(() => isTrigger(props.node) ? undefined : props.node as Action)
+const clockMode = computed(() => props.node.type === 'interval' && props.node.clock
+  ? props.node.clock.days ? 'weekly' : 'daily' : 'interval')
+const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 watch(fieldValues, (values) => {
   if (!values.has(refField.value)) refField.value = ''
 })
 const comparisons = [
   { id: 'eq', label: '等于' }, { id: 'ne', label: '不等于' }, { id: 'gt', label: '大于' },
   { id: 'gte', label: '大于等于' }, { id: 'lt', label: '小于' }, { id: 'lte', label: '小于等于' },
-  { id: 'exists', label: '存在' }
+  { id: 'exists', label: '存在' }, { id: 'contains', label: '包含' },
+  { id: 'startsWith', label: '开头是' }, { id: 'endsWith', label: '结尾是' }
 ] as const
 
 function change<N extends FlowNode>(node: N, patch: Partial<N>): void {
@@ -95,14 +105,70 @@ async function test(config: SiteConfig): Promise<void> {
   }
 }
 
-function comparison(event: Event): void {
+function asRule({ field, operator, value }: Rule): Rule {
+  return { field, operator, value }
+}
+
+function updateRule(index: number, patch: Partial<Rule>): void {
   if (props.node.type !== 'condition') return
-  const value = (event.target as HTMLSelectElement).value as typeof props.node.operator
-  change(props.node, { operator: value })
+  if (!props.node.group) change(props.node, patch)
+  else change(props.node, { group: { ...props.node.group,
+    rules: props.node.group.rules.map((rule, i) => i === index ? { ...rule, ...patch } : rule) } })
+}
+
+function setRules(rules: Rule[], match = props.node.type === 'condition' ? props.node.group?.match ?? 'all' : 'all'): void {
+  if (props.node.type !== 'condition') return
+  if (rules.length === 1 && !props.node.group) change(props.node, rules[0])
+  else change(props.node, { group: { match, rules } })
+}
+
+function setClock(mode: string): void {
+  if (props.node.type !== 'interval') return
+  change(props.node, { clock: mode === 'interval' ? undefined : {
+    time: props.node.clock?.time ?? '09:00', days: mode === 'weekly' ? props.node.clock?.days ?? [1] : undefined
+  } })
+}
+
+function selectDay(day: number, checked: boolean): void {
+  if (props.node.type !== 'interval' || !props.node.clock?.days) return
+  const days = props.node.clock.days.filter((value) => value !== day)
+  if (checked) days.push(day)
+  if (days.length) change(props.node, { clock: { ...props.node.clock, days: days.sort() } })
+}
+
+function selectFileEvent(event: keyof typeof fileEvents, checked: boolean): void {
+  if (props.node.type !== 'fileWatch') return
+  const events = props.node.events.filter((value) => value !== event)
+  if (checked) events.push(event)
+  change(props.node, { events })
+}
+
+function selectSystemEvent(event: keyof typeof systemEvents, checked: boolean): void {
+  if (props.node.type !== 'system') return
+  const events = props.node.events.filter((value) => value !== event)
+  if (checked) events.push(event)
+  change(props.node, { events })
+}
+
+async function pickPath(): Promise<void> {
+  const node = props.node
+  if (node.type !== 'fileWatch' && node.type !== 'fileRead' && node.type !== 'fileWrite') return
+  try {
+    const path = await desktop.pickPath(node.type === 'fileWatch' ? node.target : node.type === 'fileRead' ? 'file' : 'write')
+    if (path !== undefined && props.node.id === node.id) change(props.node as typeof node, { path })
+  } catch (cause) {
+    toast.add({ title: errorMessage(cause), color: 'error' })
+  }
+}
+
+function updateMapping(index: number, patch: Partial<NonNullable<Extract<FlowNode, { type: 'data' }>['mapping']>[number]>): void {
+  if (props.node.type === 'data' && props.node.mapping) {
+    change(props.node, { mapping: props.node.mapping.map((field, i) => i === index ? { ...field, ...patch } : field) })
+  }
 }
 
 function setHeader(index: number, field: 'name' | 'value', value: string): void {
-  if (props.node.type !== 'http') return
+  if (props.node.type !== 'http' && props.node.type !== 'httpPoll') return
   change(props.node, { headers: props.node.headers.map((header, i) => i === index ? { ...header, [field]: value } : header) })
 }
 
@@ -139,7 +205,28 @@ async function insertNotificationTitleReference(): Promise<void> {
 
 <template>
   <div class="fields">
-    <template v-if="node.type === 'interval' || node.type === 'ip'">
+    <template v-if="node.type === 'interval'">
+      <label for="schedule-mode">定时模式</label>
+      <select id="schedule-mode" class="input-native" :value="clockMode" :disabled="readonly"
+        @change="setClock(($event.target as HTMLSelectElement).value)">
+        <option value="interval">固定间隔</option>
+        <option value="daily">每天</option>
+        <option value="weekly">每周</option>
+      </select>
+      <template v-if="node.clock">
+        <label for="clock-time">执行时间</label>
+        <UInput id="clock-time" type="time" :model-value="node.clock.time" :disabled="readonly"
+          @update:model-value="change(node, { clock: { ...node.clock, time: String($event) } })" />
+        <div v-if="node.clock.days" class="field-group">
+          <label v-for="(day, index) in weekdays" :key="day" class="check-row">
+            <input type="checkbox" :checked="node.clock.days.includes(index)"
+              :disabled="readonly || (node.clock.days.length === 1 && node.clock.days.includes(index))"
+              @change="selectDay(index, ($event.target as HTMLInputElement).checked)" />{{ day }}
+          </label>
+        </div>
+      </template>
+    </template>
+    <template v-if="(node.type === 'interval' && !node.clock) || node.type === 'ip' || node.type === 'httpPoll'">
       <label for="interval">轮询间隔（秒）</label>
       <UInput id="interval" type="number" :min="1" :max="86400" :model-value="node.seconds" :disabled="readonly"
         class="full-width" @update:model-value="change(node, { seconds: Number($event) })" />
@@ -151,9 +238,32 @@ async function insertNotificationTitleReference(): Promise<void> {
         class="full-width" @update:model-value="change(node, { seconds: Number($event) })" />
     </template>
     <template v-if="node.type === 'data'">
-      <label for="data-value">JSON 值</label>
-      <UTextarea id="data-value" :model-value="node.value" :rows="4" :maxlength="32000" class="full-width code-input" :disabled="readonly"
-        @update:model-value="change(node, { value: String($event) })" />
+      <label for="data-mode">数据模式</label>
+      <select id="data-mode" class="input-native" :value="node.mapping ? 'mapping' : 'json'" :disabled="readonly"
+        @change="change(node, { mapping: ($event.target as HTMLSelectElement).value === 'mapping' ? [] : undefined })">
+        <option value="json">JSON</option>
+        <option value="mapping">字段映射</option>
+      </select>
+      <template v-if="node.mapping">
+        <div v-for="(field, index) in node.mapping" :key="index" class="site-config">
+          <UInput :aria-label="'字段名称 ' + (index + 1)" :model-value="field.key" :disabled="readonly"
+            @update:model-value="updateMapping(index, { key: String($event) })" />
+          <UInput :aria-label="'字段值 ' + (index + 1)" :model-value="field.value" :disabled="readonly"
+            @update:model-value="updateMapping(index, { value: String($event) })" />
+          <select class="input-native" :aria-label="'字段类型 ' + (index + 1)" :value="field.convert" :disabled="readonly"
+            @change="updateMapping(index, { convert: ($event.target as HTMLSelectElement).value as keyof typeof conversions })">
+            <option v-for="(label, key) in conversions" :key="key" :value="key">{{ label }}</option>
+          </select>
+          <UButton v-if="!readonly" variant="ghost" size="xs" color="neutral" @click="change(node, { mapping: node.mapping?.filter((_, i) => i !== index) })">删除字段</UButton>
+        </div>
+        <UButton v-if="!readonly" variant="outline" size="xs" color="neutral" :disabled="node.mapping.length >= 50"
+          @click="change(node, { mapping: [...(node.mapping ?? []), { key: '', value: '', convert: 'keep' }] })">添加字段</UButton>
+      </template>
+      <template v-else>
+        <label for="data-value">JSON 值</label>
+        <UTextarea id="data-value" :model-value="node.value" :rows="4" :maxlength="32000" class="full-width code-input" :disabled="readonly"
+          @update:model-value="change(node, { value: String($event) })" />
+      </template>
     </template>
     <template v-if="node.type === 'notification'">
       <label for="notification-title">通知标题</label>
@@ -212,39 +322,114 @@ async function insertNotificationTitleReference(): Promise<void> {
       </div>
     </template>
 
+    <template v-if="node.type === 'fileWatch'">
+      <label for="watch-target">监听类型</label>
+      <select id="watch-target" class="input-native" :value="node.target" :disabled="readonly"
+        @change="change(node, { target: ($event.target as HTMLSelectElement).value as typeof node.target, path: '' })">
+        <option value="file">单个文件</option>
+        <option value="directory">目录</option>
+      </select>
+    </template>
+    <template v-if="node.type === 'fileWatch' || node.type === 'fileRead' || node.type === 'fileWrite'">
+      <label for="local-path">路径</label>
+      <div class="actions">
+        <UInput id="local-path" class="full-width" :model-value="node.path" :disabled="readonly"
+          @update:model-value="change(node, { path: String($event) })" />
+        <UButton v-if="!readonly" variant="outline" color="neutral" @click="pickPath">选择</UButton>
+      </div>
+    </template>
+    <template v-if="node.type === 'fileWatch'">
+      <label v-for="(label, event) in fileEvents" :key="event" class="check-row">
+        <input type="checkbox" :checked="node.events.includes(event)" :disabled="readonly"
+          @change="selectFileEvent(event, ($event.target as HTMLInputElement).checked)" />{{ label }}
+      </label>
+    </template>
+    <template v-if="node.type === 'system'">
+      <label v-for="(label, event) in systemEvents" :key="event" class="check-row">
+        <input type="checkbox" :checked="node.events.includes(event)" :disabled="readonly"
+          @change="selectSystemEvent(event, ($event.target as HTMLInputElement).checked)" />{{ label }}
+      </label>
+    </template>
+    <template v-if="node.type === 'fileRead' || node.type === 'fileWrite' || node.type === 'llm'">
+      <label for="content-format">{{ node.type === 'llm' ? '输出格式' : '文件格式' }}</label>
+      <select id="content-format" class="input-native" :value="node.format" :disabled="readonly"
+        @change="change(node, { format: ($event.target as HTMLSelectElement).value as typeof node.format })">
+        <option value="text">文本</option>
+        <option value="json">JSON</option>
+      </select>
+    </template>
+    <template v-if="node.type === 'fileWrite'">
+      <label for="file-content">写入内容</label>
+      <UTextarea id="file-content" :rows="4" :model-value="node.content" class="full-width code-input" :disabled="readonly"
+        @update:model-value="change(node, { content: String($event) })" />
+    </template>
+    <template v-if="node.type === 'llm'">
+      <label for="llm-system">系统提示</label>
+      <UTextarea id="llm-system" :rows="3" :model-value="node.system" class="full-width" :disabled="readonly"
+        @update:model-value="change(node, { system: String($event) })" />
+      <label for="llm-prompt">用户提示</label>
+      <UTextarea id="llm-prompt" :rows="4" :model-value="node.prompt" class="full-width" :disabled="readonly"
+        @update:model-value="change(node, { prompt: String($event) })" />
+    </template>
     <template v-if="node.type === 'condition'">
-      <label for="condition-field">上游字段</label>
-      <select id="condition-field" v-model="conditionField" class="input-native" :disabled="readonly">
+      <template v-if="node.group">
+        <label for="condition-match">匹配方式</label>
+        <select id="condition-match" class="input-native" :value="node.group.match" :disabled="readonly"
+          @change="setRules(conditionRules, ($event.target as HTMLSelectElement).value as 'all' | 'any')">
+          <option value="all">全部满足</option>
+          <option value="any">任一满足</option>
+        </select>
+      </template>
+      <div v-for="(rule, index) in conditionRules" :key="index" class="site-config">
+      <label :for="'condition-field-' + index">上游字段</label>
+      <select :id="'condition-field-' + index" :value="rule.field" class="input-native" :disabled="readonly"
+        @change="updateRule(index, { field: ($event.target as HTMLSelectElement).value })">
         <option value="">选择字段</option>
-        <option v-if="node.field && !fieldValues.has(node.field)" :value="node.field">已保存的字段不在列表中</option>
+        <option v-if="rule.field && !fieldValues.has(rule.field)" :value="rule.field">{{ rule.field }}</option>
         <template v-for="group in fieldGroups" :key="group.id">
           <option v-for="field in group.fields" :key="field.value" :value="field.value">{{ group.label }} · {{ field.label }}</option>
         </template>
       </select>
-      <label for="operator">运算符</label>
-      <select id="operator" class="input-native" :value="node.operator" :disabled="readonly" @change="comparison">
+      <label :for="'condition-path-' + index">字段路径</label>
+      <UInput :id="'condition-path-' + index" :model-value="rule.field" class="full-width" :disabled="readonly"
+        @update:model-value="updateRule(index, { field: String($event) })" />
+      <label :for="'operator-' + index">运算符</label>
+      <select :id="'operator-' + index" class="input-native" :value="rule.operator" :disabled="readonly"
+        @change="updateRule(index, { operator: ($event.target as HTMLSelectElement).value as Rule['operator'] })">
         <option v-for="item in comparisons" :key="item.id" :value="item.id">{{ item.label }}</option>
       </select>
-      <template v-if="node.operator !== 'exists'">
-        <label for="compare-value">比较值</label>
-        <UInput id="compare-value" :model-value="node.value" class="full-width" :disabled="readonly"
-          @update:model-value="change(node, { value: String($event) })" />
+      <template v-if="rule.operator !== 'exists'">
+        <label :for="'compare-value-' + index">比较值</label>
+        <UInput :id="'compare-value-' + index" :model-value="rule.value" class="full-width" :disabled="readonly"
+          @update:model-value="updateRule(index, { value: String($event) })" />
       </template>
+      <UButton v-if="!readonly && conditionRules.length > 1" variant="ghost" size="xs" color="neutral"
+        @click="setRules(conditionRules.filter((_, i) => i !== index))">删除条件</UButton>
+      </div>
+      <UButton v-if="!readonly" variant="outline" size="xs" color="neutral" :disabled="conditionRules.length >= 20"
+        @click="setRules([...conditionRules, { field: '', operator: 'eq', value: '' }])">添加条件</UButton>
     </template>
 
-    <template v-if="node.type === 'http'">
+    <template v-if="node.type === 'http' || node.type === 'httpPoll'">
+      <template v-if="node.type === 'http'">
       <label for="http-method">请求方法</label>
       <select id="http-method" class="input-native" :value="node.method" :disabled="readonly"
         @change="change(node, { method: ($event.target as HTMLSelectElement).value as typeof node.method })">
         <option v-for="method in methods" :key="method" :value="method">{{ method }}</option>
       </select>
+      </template>
       <label for="http-url">请求地址</label>
       <UInput id="http-url" :model-value="node.url" class="full-width" :disabled="readonly"
         @update:model-value="change(node, { url: String($event) })" />
-      <template v-if="node.method !== 'GET' && node.method !== 'HEAD'">
+      <template v-if="node.type === 'http' && node.method !== 'GET' && node.method !== 'HEAD'">
         <label for="http-body">JSON 请求体</label>
         <UTextarea id="http-body" :model-value="node.body" :rows="4" class="full-width code-input" :disabled="readonly"
           @update:model-value="change(node, { body: String($event) })" />
+      </template>
+      <template v-if="node.type === 'httpPoll'">
+        <label for="poll-path">JSONPath</label>
+        <UInput id="poll-path" :model-value="node.jsonPath" class="full-width" :disabled="readonly"
+          @update:model-value="change(node, { jsonPath: String($event) })" />
       </template>
       <div class="section-row field-group">
         <h3>请求头</h3>
@@ -271,6 +456,21 @@ async function insertNotificationTitleReference(): Promise<void> {
       <div class="actions">
         <UButton color="neutral" variant="outline" size="xs" :disabled="!refField" @click="copyReference">复制引用</UButton>
       </div>
+    </template>
+    <template v-if="actionNode">
+      <label class="check-row">
+        <input type="checkbox" :checked="Boolean(actionNode.retry)" :disabled="readonly"
+          @change="change(actionNode, { retry: ($event.target as HTMLInputElement).checked ? { count: 1, seconds: 1 } : undefined })" />
+        失败后重试
+      </label>
+      <template v-if="actionNode.retry">
+        <label for="retry-count">重试次数</label>
+        <UInput id="retry-count" type="number" :min="1" :max="3" :model-value="actionNode.retry.count" :disabled="readonly"
+          @update:model-value="change(actionNode, { retry: { count: Number($event), seconds: actionNode.retry!.seconds } })" />
+        <label for="retry-seconds">重试间隔（秒）</label>
+        <UInput id="retry-seconds" type="number" :min="1" :max="86400" :model-value="actionNode.retry.seconds" :disabled="readonly"
+          @update:model-value="change(actionNode, { retry: { count: actionNode.retry!.count, seconds: Number($event) } })" />
+      </template>
     </template>
   </div>
 </template>

@@ -1,41 +1,84 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as wait } from 'node:timers/promises'
 import type { IpSample, Run, RunStep } from '../shared/ipc'
-import {
-  evaluate, graphSchema, isTrigger, parseHttpUrl, readField, renderJson, renderTemplate, validateConnections, validateWorkflow,
-  workflowSchema, type FlowEdge, type FlowNode, type Graph, type Workflow
-} from '../shared/workflow'
-import { probe, tally, type Fetch } from './network'
-import { Storage } from './storage'
+import { graphSchema, isTrigger, validateConnections, validateWorkflow, workflowSchema,
+  type FlowEdge, type FlowNode, type Graph, type Workflow } from '../shared/workflow'
+import { executeAction } from './actions'
+import { watchFiles } from './file-watch'
+import { HttpError, pollHttp, probe, samePollValue, tally, type AiOptions, type Fetch } from './network'
+import { Storage, type QueuedTask, type State } from './storage'
+import type { SystemEventSource } from './windows-events'
 
-type Schedule = { timer?: ReturnType<typeof setTimeout> }
-type HttpNode = Extract<FlowNode, { type: 'http' }>
-type IpNode = Extract<FlowNode, { type: 'ip' }>
+type Trigger = Extract<FlowNode, { type: 'manual' | 'interval' | 'ip' | 'fileWatch' | 'httpPoll' | 'system' }>
+type IpNode = Extract<Trigger, { type: 'ip' }>
+type Schedule = { controller: AbortController; config?: string; system: boolean; timer?: ReturnType<typeof setTimeout> }
+type Job = QueuedTask & { durable?: boolean }
+type Active = { controller: AbortController; done: Promise<void> }
+type Sample = (state: State) => { payload: unknown } | undefined
 
-function ipSiteKey(graph?: Graph): string | undefined {
-  const node = graph?.nodes.find((item) => item.type === 'ip')
-  return node && JSON.stringify(node.sites)
+function triggerOf(flow?: Graph): Trigger | undefined {
+  return flow?.nodes.find((node): node is Trigger => isTrigger(node))
 }
 
-function scheduleKey(graph?: Graph): string | undefined {
-  const trigger = graph?.nodes.find(isTrigger)
-  if (trigger?.type !== 'ip' && trigger?.type !== 'interval') return
-  return JSON.stringify([trigger.id, trigger.type, trigger.seconds, trigger.type === 'ip' ? trigger.sites : null])
+function triggerConfig(flow?: Graph): string | undefined {
+  const node = triggerOf(flow)
+  if (!node) return
+  const { x, y, name, ...config } = node
+  return JSON.stringify(config)
 }
 
-function recordIpSample(state: Storage['state'], id: string, results: IpSample['results']): IpSample {
+function sampleIp(state: State, id: string, results: IpSample['results']): IpSample {
   const previousIp = Object.hasOwn(state.baselines, id) ? state.baselines[id] : null
   const sample = tally(results, previousIp, new Date().toISOString())
-  state.samples[id] = sample
-  if (sample.winnerIp) state.baselines[id] = sample.winnerIp
+  state.samples = { ...state.samples, [id]: sample }
+  if (sample.winnerIp) state.baselines = { ...state.baselines, [id]: sample.winnerIp }
   return sample
+}
+
+function minuteKey(date: Date): string {
+  const pad = (number: number) => String(number).padStart(2, '0')
+  return [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join('-') +
+    'T' + pad(date.getHours()) + ':' + pad(date.getMinutes())
+}
+
+function historySnapshot(flow: Workflow): Workflow {
+  return {
+    ...flow,
+    nodes: flow.nodes.map((node) => {
+      switch (node.type) {
+        case 'http': return { ...node, url: '', headers: [], body: '' }
+        case 'httpPoll': return { ...node, url: '', headers: [] }
+        case 'notification': return { ...node, title: '', body: '' }
+        case 'fileWrite': return { ...node, content: '' }
+        case 'llm': return { ...node, system: '', prompt: '' }
+        default: return node
+      }
+    })
+  }
+}
+
+function historyOutput(node: FlowNode, output: unknown): unknown {
+  switch (node.type) {
+    case 'http':
+    case 'httpPoll': return { status: (output as { status: number }).status }
+    case 'fileRead': {
+      const { path } = output as { path: string }
+      return { path }
+    }
+    case 'llm': return { format: node.format }
+    default: return output
+  }
 }
 
 export class Engine {
   private readonly schedules = new Map<string, Schedule>()
-  private readonly busy = new Map<string, Promise<void>>()
-  private suspended = false
+  private readonly busy = new Map<string, Active>()
+  private readonly ready = new Map<string, Job>()
+  private readonly admissions = new Map<string, Promise<unknown>>()
+  private readonly sources = new Set<Promise<unknown>>()
+  private readonly probes = new Map<string, Promise<unknown>>()
   private readonly abort = new AbortController()
+  private suspended = false
 
   constructor(
     private readonly store: Storage,
@@ -43,62 +86,126 @@ export class Engine {
     private readonly report: (message: string) => void = console.error,
     private readonly showNotification: (title: string, body: string) => void = () => {
       throw new Error('系统通知不可用')
-    }
+    },
+    private readonly ai: () => AiOptions = () => { throw new Error('请先配置 AI 服务') },
+    private readonly system?: SystemEventSource
   ) {}
 
   start(immediateIp = true): void {
+    if (this.abort.signal.aborted) return
     this.suspended = false
-    for (const flow of this.store.state.workflows) this.schedule(flow, immediateIp)
+    for (const flow of this.store.state.workflows) {
+      this.schedule(flow, immediateIp)
+      this.pump(flow.id)
+    }
   }
 
   stop(): void {
     this.suspended = true
+    for (const [id, schedule] of this.schedules) {
+      if (!schedule.system) this.unschedule(id)
+    }
+  }
+
+  shutdown(): void {
+    this.stop()
     for (const id of this.schedules.keys()) this.unschedule(id)
+    this.abort.abort('shutdown')
+    for (const active of this.busy.values()) active.controller.abort('shutdown')
+  }
+
+  async drain(): Promise<void> {
+    do {
+      await Promise.allSettled([...this.busy.values()].map((active) => active.done)
+        .concat([...this.admissions.values(), ...this.sources].map((task) => task.then(() => {}))))
+    } while (this.busy.size || this.admissions.size || this.sources.size)
+    await this.store.flush()
+  }
+
+  private observe(task: Promise<unknown>): void {
+    this.sources.add(task)
+    void task.catch((error: Error) => {
+      if (!this.abort.signal.aborted) this.report(error.message)
+    }).finally(() => this.sources.delete(task))
   }
 
   private unschedule(id: string): void {
-    clearTimeout(this.schedules.get(id)?.timer)
+    const schedule = this.schedules.get(id)
+    if (!schedule) return
     this.schedules.delete(id)
+    schedule.controller.abort()
+    clearTimeout(schedule.timer)
   }
 
   private schedule(flow: Workflow, immediateIp: boolean): void {
     const { id } = flow
     if (!flow.enabled || this.suspended || this.schedules.has(id)) return
-    const trigger = flow.nodes.find(isTrigger)
-    if (trigger?.type !== 'ip' && trigger?.type !== 'interval') return
-    const delay = trigger.seconds * 1000
-    const schedule: Schedule = {}
+    const trigger = triggerOf(flow)
+    if (!trigger || trigger.type === 'manual') return
+    const schedule: Schedule = { controller: new AbortController(), config: triggerConfig(flow), system: trigger.type === 'system' }
     this.schedules.set(id, schedule)
+    const { signal } = schedule.controller
+    const submit = (sample: Sample) => this.admit(id, sample, { schedule })
+    if (trigger.type === 'fileWatch') {
+      watchFiles(trigger, signal, (payload) => this.observe(submit(() => ({ payload }))), this.report)
+      return
+    }
+    if (trigger.type === 'system') {
+      if (!this.system) this.report('Windows 本机事件不可用')
+      this.system?.subscribe(signal, (event) => {
+        if (trigger.events.includes(event.event)) this.observe(submit(() => ({ payload: event })))
+      })
+      return
+    }
+    let previousTime = new Date()
+    let lastError = ''
+    const delay = trigger.type === 'interval' && trigger.clock ? 1000 : trigger.seconds * 1000
     const tick = async () => {
-      if (this.schedules.get(id) !== schedule) return
+      if (signal.aborted) return
       try {
-        await this.exclusive(id, async () => {
-          const current = this.store.state.workflows.find((item) => item.id === id)
-          if (!current?.enabled) return
-          const currentTrigger = current.nodes.find(isTrigger)
-          if (currentTrigger?.type === 'interval') {
-            await this.execute(current, currentTrigger, { triggeredAt: new Date().toISOString() })
-          } else if (currentTrigger?.type === 'ip') {
-            await this.poll(id, currentTrigger, schedule)
-          }
-        }, true)
+        if (trigger.type === 'ip') {
+          const results = await this.probeIpSites(trigger, signal)
+          await submit((state) => {
+            const sample = sampleIp(state, id, results)
+            if (sample.previousIp && sample.winnerIp && sample.winnerIp !== sample.previousIp) return { payload: sample }
+          })
+        } else if (trigger.type === 'httpPoll') {
+          const reading = await this.readPoll(id, trigger, signal)
+          await submit((state) => {
+            const known = Object.hasOwn(state.pollBaselines, id)
+            const previous = known ? state.pollBaselines[id] : null
+            if (known && samePollValue(previous, reading.value)) return
+            state.pollBaselines = { ...state.pollBaselines, [id]: reading.value }
+            if (known) return { payload: { ...reading, previous } }
+          })
+        } else {
+          const now = new Date()
+          const clock = trigger.clock
+          const key = minuteKey(now)
+          const elapsed = now.getTime() - previousTime.getTime()
+          const due = !clock || (elapsed > 0 && elapsed <= 5000 && key !== minuteKey(previousTime) &&
+            key.endsWith('T' + clock.time) && (!clock.days || clock.days.includes(now.getDay())))
+          previousTime = now
+          if (due) await submit((state) => {
+            if (clock) {
+              const dates = Object.hasOwn(state.clockDates, id) ? state.clockDates[id] : []
+              if (dates.includes(key)) return
+              state.clockDates = { ...state.clockDates, [id]: [...dates, key] }
+            }
+            return { payload: { triggeredAt: now.toISOString() } }
+          })
+        }
+        lastError = ''
       } catch (error) {
-        this.report((error as Error).message)
+        const message = (error as Error).message
+        if (!signal.aborted && lastError !== message) this.report(message)
+        lastError = message
       } finally {
-        if (this.schedules.get(id) === schedule) schedule.timer = setTimeout(tick, delay)
+        if (!signal.aborted) schedule.timer = setTimeout(() => this.observe(tick()), delay)
       }
     }
-    schedule.timer = setTimeout(tick, trigger.type === 'ip' && immediateIp ? 0 : delay)
-  }
-
-  shutdown(): void {
-    this.stop()
-    this.abort.abort()
-  }
-
-  async drain(): Promise<void> {
-    await Promise.allSettled(this.busy.values())
-    await this.store.flush()
+    const immediate = trigger.type === 'httpPoll' || (trigger.type === 'ip' && immediateIp)
+    schedule.timer = setTimeout(() => this.observe(tick()), immediate ? 0 : delay)
   }
 
   async save(input: Workflow): Promise<void> {
@@ -108,13 +215,19 @@ export class Engine {
       flow.enabled = previous?.enabled ?? false
       const error = flow.enabled ? validateWorkflow(flow) : validateConnections(flow)
       if (error) throw new Error(error)
-      if (ipSiteKey(previous) !== ipSiteKey(flow)) {
+      const before = triggerOf(previous)
+      const after = triggerOf(flow)
+      if (JSON.stringify(before?.type === 'ip' ? before.sites : undefined) !==
+          JSON.stringify(after?.type === 'ip' ? after.sites : undefined)) {
         delete draft.baselines[flow.id]
         delete draft.samples[flow.id]
       }
+      const pollConfig = (trigger?: Trigger) => trigger?.type === 'httpPoll'
+        ? JSON.stringify([trigger.url, trigger.headers, trigger.jsonPath]) : undefined
+      if (pollConfig(before) !== pollConfig(after)) delete draft.pollBaselines[flow.id]
       if (previous) draft.workflows[draft.workflows.indexOf(previous)] = flow
       else draft.workflows.push(flow)
-      return flow.enabled && scheduleKey(previous) !== scheduleKey(flow)
+      return flow.enabled && triggerConfig(previous) !== triggerConfig(flow)
     })
     if (reschedule) {
       this.unschedule(flow.id)
@@ -133,94 +246,178 @@ export class Engine {
       flow.enabled = enabled
       return flow
     })
-    if (enabled) this.schedule(flow, true)
-    else this.unschedule(id)
+    if (enabled) {
+      this.schedule(flow, true)
+      this.pump(id)
+    } else {
+      this.unschedule(id)
+      if (!this.ready.get(id)?.allowDisabled) this.ready.delete(id)
+    }
   }
 
   async remove(id: string): Promise<void> {
     await this.store.change((draft) => {
-      if (draft.workflows.find((item) => item.id === id)?.enabled || this.busy.has(id)) {
+      if (draft.workflows.find((item) => item.id === id)?.enabled || this.busy.has(id) || this.ready.has(id)) {
         throw new Error('请停用流程并等待当前执行结束')
       }
       draft.workflows = draft.workflows.filter((item) => item.id !== id)
+      draft.queue = draft.queue.filter((item) => item.flow.id !== id)
       delete draft.baselines[id]
       delete draft.samples[id]
+      delete draft.pollBaselines[id]
+      delete draft.clockDates[id]
     })
   }
 
-  async run(id: string, draft?: Graph): Promise<void> {
+  async run(id: string, draft?: Graph, intent: 'saved' | 'preview' | 'legacy' = 'legacy'): Promise<void> {
     const saved = this.store.state.workflows.find((item) => item.id === id)
     if (!saved) throw new Error('流程不存在')
-    const flow = draft === undefined ? saved : { ...graphSchema.parse(draft), id, enabled: false }
+    const preview = draft !== undefined
+    const flow = preview ? { ...graphSchema.parse(draft), id, enabled: false } : saved
     const error = validateWorkflow(flow)
     if (error) throw new Error(error)
-    const trigger = flow.nodes.find(isTrigger)
+    const trigger = triggerOf(flow)
     if (!trigger) throw new Error('请添加触发器')
-    if (draft === undefined && !saved.enabled) throw new Error('请先启用流程')
-    if (draft !== undefined && saved.enabled) throw new Error('请先停用流程')
-    await this.exclusive(id, async () => {
-      if (trigger.type === 'ip') {
-        const results = await this.probeIpSites(trigger)
-        const sample = await this.store.change((state) => {
-          const current = state.workflows.find((item) => item.id === id)
-          if (ipSiteKey(current) !== ipSiteKey(flow)) return tally(results, null, new Date().toISOString())
-          return recordIpSample(state, id, results)
-        })
-        await this.execute(flow, trigger, sample)
-      } else {
-        await this.execute(flow, trigger, { triggeredAt: new Date().toISOString() })
-      }
-    })
-  }
-
-  private async exclusive(id: string, action: () => Promise<void>, skipBusy = false): Promise<void> {
-    if (this.busy.has(id)) {
-      if (skipBusy) return
+    if (intent === 'legacy' && !preview && !saved.enabled) throw new Error('请先启用流程')
+    if (preview && saved.enabled) throw new Error('请先停用流程')
+    if ((preview || (saved.busyPolicy ?? 'skip') === 'skip') && (this.busy.has(id) || this.ready.has(id))) {
       throw new Error('流程正在执行')
     }
-    const task = action()
-    this.busy.set(id, task)
-    try { await task } finally { this.busy.delete(id) }
+    let sample: Sample = () => ({ payload: { triggeredAt: new Date().toISOString() } })
+    if (trigger.type === 'ip') {
+      const results = await this.probeIpSites(trigger, this.abort.signal)
+      sample = (state) => {
+        const current = triggerOf(state.workflows.find((item) => item.id === id))
+        const sameSites = current?.type === 'ip' && JSON.stringify(current.sites) === JSON.stringify(trigger.sites)
+        if (sameSites && intent !== 'preview') return { payload: sampleIp(state, id, results) }
+        const previous = sameSites && Object.hasOwn(state.baselines, id) ? state.baselines[id] : null
+        return { payload: tally(results, previous, new Date().toISOString()) }
+      }
+    } else if (trigger.type === 'httpPoll') {
+      const reading = await this.readPoll(id, trigger, this.abort.signal)
+      sample = (state) => {
+        const current = triggerOf(state.workflows.find((item) => item.id === id))
+        const same = current?.type === 'httpPoll' && current.url === trigger.url && current.jsonPath === trigger.jsonPath &&
+          JSON.stringify(current.headers) === JSON.stringify(trigger.headers)
+        const previous = same && Object.hasOwn(state.pollBaselines, id) ? state.pollBaselines[id] : null
+        return { payload: { ...reading, previous } }
+      }
+    } else if (trigger.type === 'fileWatch' || trigger.type === 'system') {
+      sample = () => ({ payload: {
+        event: 'manual', triggeredAt: new Date().toISOString(),
+        ...(trigger.type === 'fileWatch' ? { path: trigger.path, isDirectory: trigger.target === 'directory' }
+          : { state: null, appId: null })
+      } })
+    }
+    const result = await this.admit(id, sample, { flow, manual: true, preview })
+    if (intent !== 'saved' || (saved.busyPolicy ?? 'skip') === 'skip') await result?.done
   }
 
-  private async probeIpSites(trigger: IpNode): Promise<IpSample['results']> {
+  private async probeIpSites(trigger: IpNode, signal: AbortSignal): Promise<IpSample['results']> {
     const fetcher: Fetch = (url, init) => this.fetcher(url, {
-      ...init, signal: init?.signal ? AbortSignal.any([init.signal, this.abort.signal]) : this.abort.signal
+      ...init, signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal
     })
     return Promise.all(trigger.sites.map((site) => probe(site, fetcher)))
   }
 
-  private async poll(id: string, trigger: IpNode, schedule: Schedule): Promise<void> {
-    const results = await this.probeIpSites(trigger)
-    if (this.schedules.get(id) !== schedule) return
-    const sample = await this.store.change((draft): IpSample | undefined => {
-      if (this.schedules.get(id) !== schedule || !draft.workflows.find((item) => item.id === id)?.enabled) return
-      return recordIpSample(draft, id, results)
+  private async readPoll(id: string, trigger: Extract<Trigger, { type: 'httpPoll' }>, signal: AbortSignal) {
+    const before = this.probes.get(id)
+    const request = Promise.resolve(before).catch(() => {}).then(() => {
+      signal.throwIfAborted()
+      return pollHttp(trigger, this.fetcher, signal)
     })
-    if (sample?.previousIp && sample.winnerIp && sample.winnerIp !== sample.previousIp && this.schedules.get(id) === schedule) {
-      const current = this.store.state.workflows.find((item) => item.id === id)
-      if (current?.enabled) await this.execute(current, trigger, sample)
+    this.probes.set(id, request)
+    try { return await request } finally {
+      if (this.probes.get(id) === request) this.probes.delete(id)
     }
   }
 
-  private async execute(flow: Workflow, trigger: FlowNode, initial: unknown): Promise<void> {
-    const start = new Date().toISOString()
-    const workflow = {
-      ...flow,
-      nodes: flow.nodes.map((node) => {
-        if (node.type === 'http') return { ...node, url: '', headers: [], body: '' }
-        if (node.type === 'notification') return { ...node, title: '', body: '' }
-        return node
+  private admit(id: string, sample: Sample, options: {
+    schedule?: Schedule; flow?: Workflow; manual?: boolean; preview?: boolean
+  }): Promise<{ done: Promise<void> } | undefined> {
+    const occupiedOnArrival = this.busy.has(id) || this.ready.has(id)
+    const before = this.admissions.get(id)
+    const admission = Promise.resolve(before).catch(() => {}).then(async () => {
+      let job: Job | undefined
+      let replace = false
+      await this.store.change((state) => {
+        if (this.abort.signal.aborted ||
+            (options.schedule && this.schedules.get(id) !== options.schedule)) return
+        const current = state.workflows.find((flow) => flow.id === id)
+        if (!current || (!options.manual && !current.enabled)) return
+        if (options.schedule && triggerConfig(current) !== options.schedule.config) return
+        const flow = options.flow ?? current
+        const policy = options.preview ? 'skip' : current.busyPolicy ?? 'skip'
+        const busy = this.busy.has(id) || this.ready.has(id) || (policy === 'skip' && occupiedOnArrival) ||
+          state.queue.some((item) => item.flow.id === id && (current.enabled || item.allowDisabled))
+        if (options.manual && busy && policy === 'skip') throw new Error('流程正在执行')
+        const event = sample(state)
+        if (!event || (busy && policy === 'skip')) return
+        job = {
+          id: randomUUID(), flow: structuredClone(flow), payload: event.payload,
+          allowDisabled: Boolean(options.manual && !current.enabled)
+        }
+        if (policy === 'queue') {
+          state.queue.push(job)
+          job = { ...job, durable: true }
+        } else {
+          replace = policy === 'latest' && busy
+        }
       })
-    }
-    const run: Run = {
-      id: randomUUID(), workflowId: flow.id, name: flow.name, workflow, startedAt: start,
-      finishedAt: null, status: 'running', steps: [], edges: []
-    }
-    await this.store.change((draft) => {
-      draft.runs.unshift(run)
-      draft.runs = draft.runs.filter((item, index) => index < 100 || item.status === 'running')
+      if (!job || this.abort.signal.aborted) return
+      const current = this.store.state.workflows.find((flow) => flow.id === id)
+      if (!current) return
+      if (!job.durable) {
+        if (!job.allowDisabled && !current.enabled) return
+        this.ready.set(id, job)
+      }
+      if (replace) this.busy.get(id)?.controller.abort('latest')
+      const active = this.pump(id)
+      if (active?.id === job.id) return { done: active.done }
+    }).finally(() => {
+      if (this.admissions.get(id) === admission) this.admissions.delete(id)
     })
+    this.admissions.set(id, admission)
+    return admission
+  }
+
+  private pump(id: string): { id: string; done: Promise<void> } | undefined {
+    if (this.abort.signal.aborted || this.busy.has(id)) return
+    const flow = this.store.state.workflows.find((item) => item.id === id)
+    if (!flow) return
+    const eligible = (item: Job) => item.allowDisabled || (flow.enabled && !this.suspended)
+    const ready = this.ready.get(id)
+    const job = ready && eligible(ready) ? ready : this.store.state.queue.find((item) =>
+      item.flow.id === id && !item.runId && eligible(item))
+    if (!job) return
+    if (job === ready) this.ready.delete(id)
+    const controller = new AbortController()
+    const done = Promise.resolve().then(() => this.execute(job, controller.signal, job !== ready)).finally(() => {
+      this.busy.delete(id)
+    })
+    this.busy.set(id, { controller, done })
+    void done.then(() => this.pump(id), (error: Error) => this.report(error.message))
+    return { id: job.id, done }
+  }
+
+  private async execute(job: Job, signal: AbortSignal, durable: boolean): Promise<void> {
+    const { flow, payload } = job
+    const trigger = triggerOf(flow)
+    if (!trigger) throw new Error('请添加触发器')
+    const run: Run = {
+      id: randomUUID(), workflowId: flow.id, name: flow.name, workflow: historySnapshot(flow),
+      taskId: job.id, startedAt: new Date().toISOString(), finishedAt: null, status: 'running', steps: [], edges: []
+    }
+    const started = await this.store.change((draft) => {
+      if (durable) {
+        const queued = draft.queue.find((item) => item.id === job.id)
+        if (!queued || queued.runId || (!job.allowDisabled && !draft.workflows.find((item) => item.id === flow.id)?.enabled)) return false
+        queued.runId = run.id
+      }
+      draft.runs.unshift(run)
+      return true
+    })
+    if (!started) return
 
     const nodes = new Map(flow.nodes.map((node) => [node.id, node]))
     const outgoing = new Map<string, FlowEdge[]>()
@@ -230,90 +427,78 @@ export class Engine {
       else outgoing.set(edge.from, [edge])
     }
     const outputs: Record<string, unknown> = Object.create(null)
+    const services = { fetcher: this.fetcher, ai: this.ai, notify: this.showNotification }
     let failed = false
     const executeNode = async (node: FlowNode, incoming?: FlowEdge): Promise<void> => {
-      const step: RunStep = { nodeId: node.id, type: node.type }
+      if (signal.aborted || failed) return
+      const step: RunStep & { attempts: number } = { nodeId: node.id, type: node.type, attempts: 0 }
       let port: FlowEdge['port'] = 'next'
+      const edges = outgoing.get(node.id) ?? []
+      let output: unknown
       try {
-        if (this.abort.signal.aborted) throw new Error('应用正在退出')
-        if (node.type === 'condition') {
-          const matched = evaluate(node, readField(outputs, node.field))
-          port = matched ? 'yes' : 'no'
-          step.output = { matched }
-        } else if (node.type === 'http') {
-          step.output = await this.request(node, outputs)
-        } else if (node.type === 'delay') {
-          await wait(node.seconds * 1000, undefined, { signal: this.abort.signal })
-          step.output = { seconds: node.seconds }
-        } else if (node.type === 'data') {
-          step.output = { value: renderJson(JSON.parse(node.value), outputs) }
-        } else if (node.type === 'notification') {
-          const title = renderTemplate(node.title, outputs)
-          if (!title.trim()) throw new Error('通知标题为空')
-          this.showNotification(title, renderTemplate(node.body, outputs))
-          step.output = { sent: true }
+        if (node.type === 'manual' || node.type === 'interval' || node.type === 'ip' ||
+            node.type === 'fileWatch' || node.type === 'httpPoll' || node.type === 'system') {
+          output = payload
+          step.attempts = 1
         } else {
-          step.output = initial
+          while (true) {
+            signal.throwIfAborted()
+            step.attempts++
+            try {
+              output = await executeAction(node, outputs, signal, services)
+              signal.throwIfAborted()
+              break
+            } catch (error) {
+              signal.throwIfAborted()
+              if (!node.retry || step.attempts > node.retry.count) throw error
+              await wait(node.retry.seconds * 1000, undefined, { signal })
+            }
+          }
         }
-        outputs[node.id] = step.output
+        if (node.type === 'condition') port = (output as { matched: boolean }).matched ? 'yes' : 'no'
+        step.output = historyOutput(node, output)
       } catch (error) {
-        step.error = this.abort.signal.aborted ? '应用正在退出' : (error as Error).message
-        failed = true
+        step.error = signal.aborted ? (signal.reason === 'latest' ? '已被新事件中断' : '应用正在退出')
+          : (error as Error).message
+        if (!signal.aborted) {
+          port = 'error'
+          failed ||= !edges.some((edge) => edge.port === 'error')
+          output = { error: {
+            message: step.error, attempts: step.attempts, ...(error instanceof HttpError ? { status: error.status } : {})
+          } }
+        }
       }
-      try {
-        await this.store.change((draft) => {
-          const runRecord = draft.runs.find((item) => item.id === run.id)
-          if (!runRecord) return
-          runRecord.steps.push(step)
-          if (incoming) runRecord.edges.push(incoming.id)
-        })
-      } catch (error) {
-        failed = true
-        throw error
-      }
-      if (failed) return
-
-      const branches = (outgoing.get(node.id) ?? []).filter((edge) => edge.port === port)
-      const results = await Promise.allSettled(branches.map((edge) => executeNode(nodes.get(edge.to)!, edge)))
-      const rejected = results.find((result) => result.status === 'rejected')
+      outputs[node.id] = output
+      await this.store.change((draft) => {
+        const record = draft.runs.find((item) => item.id === run.id)
+        if (!record) return
+        record.steps.push(step)
+        if (incoming) record.edges.push(incoming.id)
+      })
+      if (signal.aborted || failed) return
+      const branches = await Promise.allSettled(edges.filter((edge) => edge.port === port)
+        .map((edge) => executeNode(nodes.get(edge.to)!, edge)))
+      const rejected = branches.find((result) => result.status === 'rejected')
       if (rejected) throw rejected.reason
     }
 
     try {
       await executeNode(trigger)
+    } catch (error) {
+      failed = true
+      throw error
     } finally {
       await this.store.change((draft) => {
-        const runRecord = draft.runs.find((item) => item.id === run.id)
-        if (!runRecord) return
-        runRecord.status = failed ? 'failed' : 'success'
-        runRecord.finishedAt = new Date().toISOString()
+        const record = draft.runs.find((item) => item.id === run.id)
+        if (!record) return
+        record.status = signal.aborted ? (signal.reason === 'latest' ? 'cancelled' : 'interrupted')
+          : failed ? 'failed' : 'success'
+        record.finishedAt = new Date().toISOString()
+        const queued = draft.queue.find((item) => item.id === job.id)
+        if (queued && record.status === 'interrupted') delete queued.runId
+        else if (queued) draft.queue = draft.queue.filter((item) => item.id !== job.id)
         draft.runs = draft.runs.filter((item, index) => index < 100 || item.status === 'running')
       })
     }
-  }
-
-  private async request(node: HttpNode, outputs: Record<string, unknown>): Promise<{ status: number }> {
-    let url: URL
-    const address = renderTemplate(node.url, outputs)
-    try { url = parseHttpUrl(address) } catch { throw new Error('HTTP 请求地址无效') }
-    const pairs = node.headers.map(({ name, value }): [string, string] => [name, renderTemplate(value, outputs)])
-    let headers: Headers
-    try { headers = new Headers(pairs) } catch { throw new Error('HTTP 请求头无效') }
-    let body: string | undefined
-    if (node.body && node.method !== 'GET' && node.method !== 'HEAD') {
-      body = JSON.stringify(renderJson(JSON.parse(node.body), outputs))
-      if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
-    }
-    const timeout = AbortSignal.timeout(15000)
-    const signal = AbortSignal.any([timeout, this.abort.signal])
-    let response: Response
-    try {
-      response = await this.fetcher(url, { method: node.method, headers, body, signal, redirect: 'manual' })
-    } catch {
-      throw new Error(timeout.aborted ? 'HTTP 请求超时' : this.abort.signal.aborted ? '应用正在退出' : 'HTTP 请求失败')
-    }
-    void response.body?.cancel().catch(() => {})
-    if (!response.ok) throw new Error('HTTP ' + response.status)
-    return { status: response.status }
   }
 }

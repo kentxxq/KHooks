@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { Engine } from './engine'
 import { generateGraph, probe, testAiService, type Fetch } from './network'
 import { Storage } from './storage'
+import { WindowsEvents } from './windows-events'
 import { componentSchema, parseHttpUrl, siteConfig, workflowSchema } from '../shared/workflow'
 import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc'
 import {
@@ -49,7 +50,14 @@ const engine = new Engine(store, fetcher, console.error, (title, body) => {
   }
   if (!Notification.isSupported()) throw new Error('系统通知不可用')
   new Notification({ title, body, icon: iconPath }).show()
-})
+}, () => {
+  const { url, model, encryptedKey } = store.state.ai
+  if (!url || !model || !encryptedKey) throw new Error('请先在设置中填写 AI 服务地址、模型和密钥')
+  return { url, model, key: decryptAiKey(encryptedKey) }
+}, windows ? new WindowsEvents(join(
+  development ? join(app.getAppPath(), 'debug', 'tmpfile-AI-windows-events') : join(process.resourcesPath, 'windows-events'),
+  'WindowsEvents.exe'
+), console.error) : undefined)
 const loginArgs = ['--hidden']
 
 function notify(): void {
@@ -206,7 +214,17 @@ function registerIpc(): void {
   })
   bind('remove', (id) => engine.remove(idSchema.parse(id)))
   bind('enable', (id, enabled) => engine.enable(idSchema.parse(id), z.boolean().parse(enabled)))
-  bind('run', (id, draft) => engine.run(idSchema.parse(id), draft))
+  bind('run', (id, draft) => engine.run(idSchema.parse(id), draft, draft === undefined ? 'saved' : 'preview'))
+  bind('pickPath', async (input) => {
+    const target = z.enum(['file', 'directory', 'write']).parse(input)
+    if (!window) return
+    if (target === 'write') {
+      const result = await dialog.showSaveDialog(window, { title: '选择写入路径' })
+      return result.filePath
+    }
+    const result = await dialog.showOpenDialog(window, { properties: [target === 'file' ? 'openFile' : 'openDirectory'] })
+    return result.filePaths[0]
+  })
   bind('probe', (config) => probe(siteConfig.parse(config), fetcher))
   bind('settings', async (input) => {
     const { login, aiUrl, aiModel, aiKey } = settingsInput.parse(input)

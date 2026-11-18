@@ -12,7 +12,8 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "package:win": "electron-builder --win nsis --x64 --publish never"
+    "build:windows-events": "dotnet publish native/windows-events/WindowsEvents.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None --artifacts-path debug/tmpfile-AI-dotnet -o debug/tmpfile-AI-windows-events",
+    "package:win": "vp run build:windows-events && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.8.3",

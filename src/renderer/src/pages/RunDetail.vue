@@ -46,6 +46,7 @@ function selectStep(id: string): void {
             @click="selectStep(step.nodeId)">
             <UIcon :name="step.error ? 'i-lucide-circle-x' : 'i-lucide-circle-check'" :class="step.error ? 'error-text' : 'success-text'" />
             {{ nodeNames[step.type as FlowNode['type']] }}
+            <span v-if="step.attempts" class="muted">{{ step.attempts }} 次尝试</span>
           </button>
           <pre v-if="result && !result.error" class="result-code">{{ JSON.stringify(result.output, null, 2) }}</pre>
         </div>

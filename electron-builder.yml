@@ -8,6 +8,11 @@ files:
   - out/**/*
   - package.json
   - resources/icon.png
+extraResources:
+  - from: debug/tmpfile-AI-windows-events
+    to: windows-events
+    filter:
+      - WindowsEvents.exe
 publish:
   provider: github
   owner: kentxxq

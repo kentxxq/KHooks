@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from '@nuxt/ui/composables/useToast'
 import { copy, desktop, errorMessage, nodeIcons, useDesktop } from '../model'
@@ -13,14 +13,29 @@ const prompt = ref('')
 const aiOpen = ref(false)
 const action = ref<'new' | 'generate' | 'remove' | 'copy'>()
 const toggling = ref<string>()
+const running = reactive(new Set<string>())
 const pending = computed(() => action.value !== undefined || toggling.value !== undefined)
 const deletion = ref<{ id: string; name: string }>()
 const copyDraft = ref<{ source: Workflow; name: string }>()
 
 const trigger = (flow: Workflow) => flow.nodes.find(isTrigger)
 
+async function run(flow: Workflow): Promise<void> {
+  if (pending.value || running.has(flow.id) || !trigger(flow)) return
+  const { id } = flow
+  running.add(id)
+  try {
+    await desktop.run(id)
+    await store.refresh()
+  } catch (cause) {
+    toast.add({ title: errorMessage(cause), color: 'error' })
+  } finally {
+    running.delete(id)
+  }
+}
+
 async function toggleEnabled(flow: Workflow): Promise<void> {
-  if (pending.value) return
+  if (pending.value || running.has(flow.id)) return
   toggling.value = flow.id
   try {
     await desktop.enable(flow.id, !flow.enabled)
@@ -33,7 +48,7 @@ async function toggleEnabled(flow: Workflow): Promise<void> {
 }
 
 function requestDeletion(flow: Workflow): void {
-  if (pending.value || flow.enabled) return
+  if (pending.value || flow.enabled || running.has(flow.id)) return
   deletion.value = { id: flow.id, name: flow.name }
 }
 
@@ -130,14 +145,17 @@ async function confirmCopy(): Promise<void> {
           <span class="muted">{{ flow.nodes.length }} 个节点</span>
           <UIcon name="i-lucide-chevron-right" class="muted" />
         </RouterLink>
+        <UButton class="mr-2 shrink-0" color="neutral" variant="outline" icon="i-lucide-play"
+          :aria-label="'手动运行流程 ' + flow.name" :loading="running.has(flow.id)"
+          :disabled="pending || running.has(flow.id) || !trigger(flow)" @click="run(flow)">手动运行</UButton>
         <UButton :color="flow.enabled ? 'success' : 'neutral'" variant="soft" :icon="flow.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
           :aria-label="(flow.enabled ? '停用流程 ' : '启用流程 ') + flow.name"
-          :disabled="pending" :loading="toggling === flow.id" @click="toggleEnabled(flow)">{{ flow.enabled ? '停用' : '启用' }}</UButton>
+          :disabled="pending || running.has(flow.id)" :loading="toggling === flow.id" @click="toggleEnabled(flow)">{{ flow.enabled ? '停用' : '启用' }}</UButton>
         <UButton class="ml-4" color="neutral" variant="ghost" icon="i-lucide-copy" :aria-label="'复制流程 ' + flow.name"
           title="复制流程" :disabled="pending" @click="requestCopy(flow)" />
         <UButton color="error" variant="ghost" icon="i-lucide-trash-2"
           :aria-label="'删除流程 ' + flow.name" :title="flow.enabled ? '请先停用流程' : '删除流程'"
-          :disabled="pending || flow.enabled" @click="requestDeletion(flow)" />
+          :disabled="pending || flow.enabled || running.has(flow.id)" @click="requestDeletion(flow)" />
       </div>
     </div>
     <div v-else class="surface empty-state">

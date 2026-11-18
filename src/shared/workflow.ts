@@ -21,44 +21,79 @@ const id = z.string().regex(/^[\w-]{1,80}$/)
 const name = z.string().trim().min(1).max(100)
 const nodeBase = { id, x: z.number(), y: z.number(), name: z.string().trim().max(100).transform((value) => value || undefined).optional() }
 export const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'] as const
-export const operators = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'exists'] as const
+export const operators = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'exists', 'contains', 'startsWith', 'endsWith'] as const
+export const busyPolicies = { skip: '忙碌跳过', queue: '持久排队', latest: '中断并运行最新事件' } as const
+export const fileEvents = { added: '新增', changed: '修改', removed: '删除' } as const
+export const systemEvents = {
+  playing: '开始播放', stopped: '停止播放', offline: '网络断开',
+  online: '网络恢复', screenOff: '屏幕关闭', screenOn: '屏幕点亮'
+} as const
+export const rule = z.strictObject({ field: z.string().max(300), operator: z.enum(operators), value: z.string().max(2000) })
+export type Rule = z.infer<typeof rule>
+export const conversions = { keep: '保留类型', text: '文本', number: '数字', boolean: '布尔' } as const
+const keys = <T extends object>(labels: T) => Object.keys(labels) as (keyof T & string)[]
+export const systemEventSchema = z.enum(keys(systemEvents))
+const format = z.enum(['text', 'json'])
+const path = z.string().max(4096)
+const headers = z.array(z.strictObject({ name: z.string().max(100), value: z.string().max(4000) })).max(30)
+const seconds = z.number().int().min(1).max(86400)
+const actions = { retry: z.strictObject({ count: z.number().int().min(1).max(3), seconds }).optional() }
+const clock = z.strictObject({
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional()
+})
 const nodeConfigs = [
   z.strictObject({ type: z.literal('manual') }),
-  z.strictObject({ type: z.literal('interval'), seconds: z.number().int().min(1).max(86400) }),
+  z.strictObject({ type: z.literal('interval'), seconds, clock: clock.optional() }),
   z.strictObject({ type: z.literal('ip'), seconds: z.number().int().min(1).max(86400), sites: z.array(siteConfig).max(siteId.options.length) }),
-  z.strictObject({ type: z.literal('condition'), field: z.string().max(300), operator: z.enum(operators), value: z.string().max(2000) }),
-  z.strictObject({ type: z.literal('delay'), seconds: z.number().int().min(1).max(86400) }),
-  z.strictObject({ type: z.literal('data'), value: z.string().max(32000) }),
-  z.strictObject({ type: z.literal('notification'), title: z.string().max(100), body: z.string().max(1000) }),
+  z.strictObject({ type: z.literal('fileWatch'), path, target: z.enum(['file', 'directory']), events: z.array(z.enum(keys(fileEvents))).max(3) }),
+  z.strictObject({ type: z.literal('httpPoll'), seconds, url: z.string().max(4000), headers, jsonPath: z.string().max(200) }),
+  z.strictObject({ type: z.literal('system'), events: z.array(systemEventSchema).max(6) }),
+  z.strictObject({ type: z.literal('condition'), ...rule.shape, ...actions,
+    group: z.strictObject({ match: z.enum(['all', 'any']), rules: z.array(rule).max(20) }).optional() }),
+  z.strictObject({ type: z.literal('delay'), seconds, ...actions }),
+  z.strictObject({ type: z.literal('data'), value: z.string().max(32000), ...actions,
+    mapping: z.array(z.strictObject({ key: z.string().max(200), value: z.string().max(32000), convert: z.enum(keys(conversions)) })).max(50).optional() }),
+  z.strictObject({ type: z.literal('notification'), title: z.string().max(100), body: z.string().max(1000), ...actions }),
   z.strictObject({
     type: z.literal('http'),
     method: z.enum(methods),
     url: z.string().max(4000),
-    headers: z.array(z.strictObject({ name: z.string().max(100), value: z.string().max(4000) })).max(30),
-    body: z.string().max(32000)
-  })
+    headers,
+    body: z.string().max(32000),
+    ...actions
+  }),
+  z.strictObject({ type: z.literal('fileRead'), path, format, ...actions }),
+  z.strictObject({ type: z.literal('fileWrite'), path, format, content: z.string().max(262144), ...actions }),
+  z.strictObject({ type: z.literal('llm'), system: z.string().max(32000), prompt: z.string().max(32000), format, ...actions })
 ] as const
-const [manual, interval, ip, condition, delay, data, notification, http] = nodeConfigs
+const [manual, interval, ip, fileWatch, httpPoll, system, condition, delay, data, notification, http, fileRead, fileWrite, llm] = nodeConfigs
 export const nodeSchema = z.discriminatedUnion('type', [
   manual.extend(nodeBase),
   interval.extend(nodeBase),
   ip.extend(nodeBase),
+  fileWatch.extend(nodeBase),
+  httpPoll.extend(nodeBase),
+  system.extend(nodeBase),
   condition.extend(nodeBase),
   delay.extend(nodeBase),
   data.extend(nodeBase),
   notification.extend(nodeBase),
-  http.extend(nodeBase)
+  http.extend(nodeBase),
+  fileRead.extend(nodeBase),
+  fileWrite.extend(nodeBase),
+  llm.extend(nodeBase)
 ])
 const componentInputSchema = z.strictObject({ name, config: z.discriminatedUnion('type', nodeConfigs) })
 export const componentSchema = componentInputSchema.extend({ id })
 
-const edgeSchema = z.strictObject({ id, from: id, to: id, port: z.enum(['next', 'yes', 'no']) })
+const edgeSchema = z.strictObject({ id, from: id, to: id, port: z.enum(['next', 'yes', 'no', 'error']) })
 export const graphSchema = z.strictObject({
   name,
   nodes: z.array(nodeSchema),
   edges: z.array(edgeSchema)
 })
-export const workflowSchema = graphSchema.extend({ id, enabled: z.boolean() })
+export const workflowSchema = graphSchema.extend({ id, enabled: z.boolean(), busyPolicy: z.enum(keys(busyPolicies)).optional() })
 export type Graph = z.infer<typeof graphSchema>
 export type Workflow = z.infer<typeof workflowSchema>
 export type FlowNode = z.infer<typeof nodeSchema>
@@ -78,11 +113,17 @@ export const nodeNames = {
   manual: '手动触发',
   interval: '定时触发',
   ip: '公网 IP 变化',
+  fileWatch: '本地文件变化',
+  httpPoll: 'HTTP 数据变化',
+  system: 'Windows 本机事件',
   condition: '条件分支',
   http: 'HTTP 请求',
   delay: '延时等待',
   data: '设置数据',
-  notification: 'Windows 通知'
+  notification: 'Windows 通知',
+  fileRead: '读取文件',
+  fileWrite: '写入文件',
+  llm: '大模型'
 } satisfies Record<FlowNode['type'], string>
 
 export function nodeLabel(graph: Graph, node: FlowNode): string {
@@ -99,16 +140,26 @@ export function createNode(type: FlowNode['type'], id: string, x: number, y: num
     case 'manual': return { ...base, type }
     case 'interval': return { ...base, type, seconds: 60 }
     case 'ip': return { ...base, type, seconds: 60, sites: [] }
+    case 'fileWatch': return { ...base, type, path: '', target: 'directory', events: ['added', 'changed', 'removed'] }
+    case 'httpPoll': return { ...base, type, seconds: 60, url: '', headers: [], jsonPath: '' }
+    case 'system': return { ...base, type, events: [] }
     case 'condition': return { ...base, type, field: '', operator: 'eq', value: '' }
     case 'http': return { ...base, type, method: 'GET', url: '', headers: [], body: '' }
     case 'delay': return { ...base, type, seconds: 5 }
     case 'data': return { ...base, type, value: 'null' }
     case 'notification': return { ...base, type, title: '', body: '' }
+    case 'fileRead': return { ...base, type, path: '', format: 'text' }
+    case 'fileWrite': return { ...base, type, path: '', format: 'text', content: '' }
+    case 'llm': return { ...base, type, system: '', prompt: '', format: 'text' }
   }
 }
 
 export function isTrigger(node: Pick<FlowNode, 'type'>): boolean {
-  return node.type === 'manual' || node.type === 'interval' || node.type === 'ip'
+  return ['manual', 'interval', 'ip', 'fileWatch', 'httpPoll', 'system'].includes(node.type)
+}
+
+export function isAbsoluteFilePath(value: string): boolean {
+  return /^(?:[a-z]:[\\/]|\\\\[^\\]+\\[^\\]+|\/)/i.test(value)
 }
 
 export function parseHttpUrl(value: string): URL {
@@ -134,8 +185,13 @@ export function instantiateComponent(component: NodeComponent, id: string, x: nu
   const node = { ...structuredClone(component.config), id, x, y, name: component.name }
   const clear = (value: string) => replaceFieldRefs(value, () => '')
   switch (node.type) {
-    case 'condition': return { ...node, field: '' }
-    case 'data': return { ...node, value: clear(node.value) }
+    case 'condition': return { ...node, field: '', group: node.group && {
+      ...node.group, rules: node.group.rules.map((rule) => ({ ...rule, field: '' }))
+    } }
+    case 'data': return { ...node, value: clear(node.value), mapping: node.mapping?.map((field) => ({ ...field, value: clear(field.value) })) }
+    case 'fileRead': return { ...node, path: clear(node.path) }
+    case 'fileWrite': return { ...node, path: clear(node.path), content: clear(node.content) }
+    case 'llm': return { ...node, system: clear(node.system), prompt: clear(node.prompt) }
     case 'notification': return { ...node, title: clear(node.title), body: clear(node.body) }
     case 'http': return {
       ...node,
@@ -173,7 +229,9 @@ export function validateConnections(graph: Graph): string | undefined {
     const target = nodes.get(edge.to)
     if (edgeIds.has(edge.id) || !source || !target || isTrigger(target)) return '连线端点无效'
     edgeIds.add(edge.id)
-    if (source.type === 'condition' ? edge.port === 'next' : edge.port !== 'next') return '连线出口无效'
+    const validPort = edge.port === 'error' ? !isTrigger(source)
+      : source.type === 'condition' ? edge.port !== 'next' : edge.port === 'next'
+    if (!validPort) return '连线出口无效'
     if (incoming.has(edge.to)) return '节点只能有一个入口'
     incoming.set(edge.to, edge.from)
   }
@@ -204,10 +262,31 @@ export function validateWorkflow(graph: Graph): string | undefined {
       if (!node.sites.length || new Set(node.sites.map((site) => site.id)).size !== node.sites.length) return '请选择至少一个站点，每个站点只能选择一次'
       if (node.sites.some((site) => site.mode === 'json' && !site.path.trim().startsWith('$'))) return 'JSONPath 必须以 $ 开头'
     }
-    if (node.type === 'condition' && !validRef(node.field)) return '条件节点需要引用上游字段'
+    if (node.type === 'interval' && node.clock?.days && new Set(node.clock.days).size !== node.clock.days.length) return '星期不能重复'
+    if (node.type === 'fileWatch' && (!isAbsoluteFilePath(node.path) || !node.events.length)) return '请选择绝对路径和文件事件'
+    if (node.type === 'system' && !node.events.length) return '请选择本机事件'
+    if (node.type === 'condition') {
+      const rules = node.group?.rules ?? [node]
+      if (!rules.length || rules.some((rule) => !validRef(rule.field))) return '条件节点需要引用上游字段'
+    }
     if (node.type === 'data') {
-      if (fieldRefs(node.value).some((field) => !validRef(field))) return '设置数据只能引用上游字段'
-      try { JSON.parse(node.value) } catch { return '设置数据需要有效的 JSON' }
+      const values = node.mapping?.map((field) => field.value) ?? [node.value]
+      if (values.flatMap(fieldRefs).some((field) => !validRef(field))) return '设置数据只能引用上游字段'
+      if (node.mapping) {
+        const keys = node.mapping.map((field) => field.key.trim())
+        if (keys.some((key) => !key) || new Set(keys).size !== keys.length) return '映射字段名称不能为空或重复'
+      } else {
+        try { JSON.parse(node.value) } catch { return '设置数据需要有效的 JSON' }
+      }
+    }
+    if (node.type === 'fileRead' || node.type === 'fileWrite') {
+      if (!isAbsoluteFilePath(node.path) && !node.path.trim().match(/^\{\{\s*[\w.-]+\s*\}\}$/)) return '文件节点需要绝对路径或上游路径引用'
+      const values = node.type === 'fileWrite' ? [node.path, node.content] : [node.path]
+      if (values.flatMap(fieldRefs).some((field) => !validRef(field))) return '文件节点只能引用上游字段'
+    }
+    if (node.type === 'llm') {
+      if (!node.prompt.trim()) return '请输入用户提示'
+      if ([node.system, node.prompt].flatMap(fieldRefs).some((field) => !validRef(field))) return '大模型节点只能引用上游字段'
     }
     if (node.type === 'notification') {
       if (!node.title.trim()) return '请输入通知标题'
@@ -223,6 +302,13 @@ export function validateWorkflow(graph: Graph): string | undefined {
       } catch {
         return '请检查 HTTP 请求的地址、请求头和 JSON 请求体'
       }
+    }
+    if (node.type === 'httpPoll') {
+      try {
+        parseHttpUrl(node.url)
+        new Headers(node.headers.map(({ name, value }) => [name, value]))
+      } catch { return '请检查 HTTP 轮询地址和请求头' }
+      if (node.jsonPath.trim() && !node.jsonPath.trim().startsWith('$')) return 'JSONPath 必须以 $ 开头'
     }
   }
 }
@@ -244,7 +330,16 @@ export function outputFields(node: FlowNode): { key: string; label: string }[] {
       ])
     ]
     case 'condition': return [{ key: 'matched', label: '条件是否满足' }]
-    case 'http': return [{ key: 'status', label: 'HTTP 状态码' }]
+    case 'http': return [{ key: 'status', label: 'HTTP 状态码' }, { key: 'body', label: '响应内容' }, { key: 'headers', label: '响应头' }]
+    case 'httpPoll': return [{ key: 'previous', label: '旧值' }, { key: 'value', label: '新值' },
+      { key: 'status', label: 'HTTP 状态码' }, { key: 'triggeredAt', label: '检测时间' }]
+    case 'fileWatch': return [{ key: 'event', label: '文件事件' }, { key: 'path', label: '路径' },
+      { key: 'isDirectory', label: '是否目录' }, { key: 'triggeredAt', label: '触发时间' }]
+    case 'system': return [{ key: 'event', label: '系统事件' }, { key: 'state', label: '状态' },
+      { key: 'appId', label: '应用标识' }, { key: 'triggeredAt', label: '触发时间' }]
+    case 'fileRead': return [{ key: 'path', label: '文件路径' }, { key: 'content', label: '文件内容' }]
+    case 'fileWrite': return [{ key: 'path', label: '文件路径' }, { key: 'bytes', label: '写入字节数' }]
+    case 'llm': return [{ key: 'value', label: '模型输出' }]
     case 'delay': return [{ key: 'seconds', label: '等待秒数' }]
     case 'data': return [{ key: 'value', label: '数据值' }]
     case 'notification': return [{ key: 'sent', label: '通知是否已发送' }]
@@ -286,12 +381,17 @@ export function renderJson(value: unknown, outputs: Record<string, unknown>): un
   return value
 }
 
-export function evaluate(node: Extract<FlowNode, { type: 'condition' }>, value: unknown): boolean {
+export function evaluate(node: Rule, value: unknown): boolean {
   if (node.operator === 'exists') return value !== undefined && value !== null
   let expected: unknown = node.value
   try { expected = JSON.parse(node.value) } catch { /* 未加引号的文本按字符串比较 */ }
   if (node.operator === 'eq') return value === expected
   if (node.operator === 'ne') return value !== expected
+  if (node.operator === 'contains' || node.operator === 'startsWith' || node.operator === 'endsWith') {
+    return typeof value === 'string' && value[node.operator === 'contains' ? 'includes' : node.operator](
+      typeof expected === 'string' ? expected : node.value
+    )
+  }
   if (typeof value !== 'number' || typeof expected !== 'number') return false
   switch (node.operator) {
     case 'gt': return value > expected

@@ -27,7 +27,7 @@ export const useDesktop = defineStore('desktop', () => {
 })
 
 export const runLabels: Record<Run['status'], string> = {
-  running: '执行中', success: '成功', failed: '失败', interrupted: '已中断'
+  running: '执行中', success: '成功', failed: '失败', interrupted: '应用退出中断', cancelled: '被新事件中断'
 }
 
 export { nodeIcons } from './node-icons'

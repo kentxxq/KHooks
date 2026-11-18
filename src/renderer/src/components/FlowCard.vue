@@ -20,16 +20,21 @@ const name = computed(() => props.data.node.name?.trim())
       </span>
       <UIcon v-if="data.active" class="step-mark" :name="data.failed ? 'i-lucide-circle-x' : 'i-lucide-circle-check'" />
     </div>
-    <div v-if="data.node.type === 'condition'" class="branch-labels">
-      <span>是</span><span>否</span>
-      <Handle id="yes" type="source" :position="Position.Right" :style="{ top: '58px' }" />
-      <Handle id="no" type="source" :position="Position.Right" :style="{ top: '82px' }" />
-    </div>
-    <template v-else>
+    <template v-if="isTrigger(data.node)">
       <div v-if="data.node.type === 'ip'" class="node-detail">{{ data.node.sites.length }} 个站点 · {{ data.node.seconds }} 秒</div>
-      <div v-if="data.node.type === 'interval'" class="node-detail">每 {{ data.node.seconds }} 秒</div>
-      <div v-if="data.node.type === 'http'" class="node-detail">{{ data.node.method }}</div>
+      <div v-if="data.node.type === 'interval'" class="node-detail">{{ data.node.clock?.time ?? '每 ' + data.node.seconds + ' 秒' }}</div>
       <Handle id="next" type="source" :position="Position.Right" />
+    </template>
+    <template v-else>
+      <div v-if="data.node.type === 'http'" class="node-detail">{{ data.node.method }}</div>
+      <div class="branch-labels">
+        <template v-if="data.node.type === 'condition'">
+          <span class="branch-port">是<Handle id="yes" type="source" :position="Position.Right" /></span>
+          <span class="branch-port">否<Handle id="no" type="source" :position="Position.Right" /></span>
+        </template>
+        <span v-else class="branch-port">成功<Handle id="next" type="source" :position="Position.Right" /></span>
+        <span class="branch-port">失败<Handle id="error" type="source" :position="Position.Right" /></span>
+      </div>
     </template>
   </div>
 </template>

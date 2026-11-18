@@ -12,6 +12,7 @@ const desktop: Desktop = {
   remove: (id) => invoke('remove', id),
   enable: (id, enabled) => invoke('enable', id, enabled),
   run: (id, draft) => invoke('run', id, draft),
+  pickPath: (target) => invoke('pickPath', target),
   probe: (site) => invoke('probe', site),
   settings: (settings) => invoke('settings', settings),
   testAi: (settings) => invoke('testAi', settings),

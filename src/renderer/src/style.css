@@ -141,6 +141,8 @@ h3 { font-size: 13px; font-weight: 650; }
 .flow-card .vue-flow__handle { background: var(--ui-text-toned); border: 2px solid var(--surface); width: 12px; height: 12px; }
 .flow-card .vue-flow__handle-right { right: -6px; }
 .flow-card .vue-flow__handle-left { left: -6px; }
+.branch-port { position: relative; }
+.branch-port .vue-flow__handle-right { right: -18px; }
 .canvas .vue-flow__controls { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin: 12px; }
 .canvas .vue-flow__controls-button { color: var(--ui-text-toned); background: var(--surface); border-color: var(--line); }
 .canvas .vue-flow__controls-button:hover { background: var(--ui-bg-elevated); }

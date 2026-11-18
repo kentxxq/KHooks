@@ -11,14 +11,15 @@ export type IpSample = {
   checkedAt: string
 }
 
-export type RunStep = { nodeId: string; type: string; output?: unknown; error?: string }
+export type RunStep = { nodeId: string; type: string; attempts?: number; output?: unknown; error?: string }
 export type Run = {
   id: string
   workflowId: string
   name: string
   startedAt: string
   finishedAt: string | null
-  status: 'running' | 'success' | 'failed' | 'interrupted'
+  status: 'running' | 'success' | 'failed' | 'interrupted' | 'cancelled'
+  taskId?: string
   steps: RunStep[]
   edges: string[]
   workflow: Workflow
@@ -44,6 +45,7 @@ export interface Desktop {
   remove(id: string): Promise<void>
   enable(id: string, enabled: boolean): Promise<void>
   run(id: string, draft?: Graph): Promise<void>
+  pickPath(target: 'file' | 'directory' | 'write'): Promise<string | undefined>
   probe(site: SiteConfig): Promise<SiteResult>
   settings(settings: Omit<Settings, 'hasAiKey' | 'theme'> & { aiKey?: string }): Promise<void>
   testAi(settings: { aiUrl: string; aiModel: string; aiKey?: string }): Promise<void>

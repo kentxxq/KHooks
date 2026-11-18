@@ -4,7 +4,7 @@ import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useToast } from '@nuxt/ui/composables/useToast'
 import type { Connection, XYPosition } from '@xyflow/vue'
 import {
-  createNode, instantiateComponent, isTrigger, nodeNames, sites, validateConnections, workflowSchema,
+  busyPolicies, createNode, instantiateComponent, isTrigger, nodeNames, sites, validateConnections, workflowSchema,
   type FlowEdge, type FlowNode, type NodeComponent, type Workflow
 } from '../../../shared/workflow'
 import { copy, dateTime, desktop, errorMessage, nodeDragType, nodeIcons, useDesktop } from '../model'
@@ -31,15 +31,13 @@ const preview = computed(() => previewType.value && createNode(previewType.value
 const hasTrigger = computed(() => draft.value?.nodes.some(isTrigger))
 const canRun = computed(() => saved.value?.enabled ? saved.value.nodes.some(isTrigger) : hasTrigger.value)
 const libraryGroups = [
-  { label: '触发器', types: ['manual', 'interval', 'ip'] },
-  { label: '逻辑与执行', types: ['condition', 'http', 'delay', 'data', 'notification'] }
+  { label: '触发器', types: ['manual', 'interval', 'ip', 'fileWatch', 'httpPoll', 'system'] },
+  { label: '逻辑与执行', types: ['condition', 'http', 'delay', 'data', 'notification', 'fileRead', 'fileWrite', 'llm'] }
 ] as const
-const nodeUses: Record<FlowNode['type'], string> = {
+const nodeUses: Partial<Record<FlowNode['type'], string>> = {
   manual: '点击「手动运行」时执行流程。',
-  interval: '按设定的时间间隔执行流程。',
   ip: '轮询所选站点，检测到现在的公网 IPv4 与之前不同时执行流程。',
   condition: '比较上游字段的值，根据结果走「是」或「否」分支。',
-  http: '向指定地址发送 HTTP 请求，并将状态码传给下游。',
   delay: '等待设定的秒数，再执行下一个节点。',
   data: '设置一个 JSON 值，供下游节点引用。',
   notification: '在 Windows 上显示一条系统通知。'
@@ -214,6 +212,10 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
           <p v-if="nameError" id="flow-name-error" class="field-error" role="alert">{{ nameError }}</p>
         </div>
         <span v-if="dirty" class="muted unsaved">未保存</span>
+        <select class="input-native" aria-label="流程忙碌策略" :value="draft.busyPolicy ?? 'skip'" :disabled="busy"
+          @change="draft.busyPolicy = ($event.target as HTMLSelectElement).value as Workflow['busyPolicy']">
+          <option v-for="(label, policy) in busyPolicies" :key="policy" :value="policy">{{ label }}</option>
+        </select>
       </div>
       <div class="actions">
         <UButton color="neutral" variant="outline" icon="i-lucide-play" :disabled="busy || !canRun"
@@ -275,7 +277,7 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
             <h2><span class="node-icon" :class="preview.type"><UIcon :name="nodeIcons[preview.type]" mode="svg" /></span>{{ nodeNames[preview.type] }}</h2>
             <span class="muted">预览</span>
           </div>
-          <p class="node-use">{{ nodeUses[preview.type] }}</p>
+          <p v-if="nodeUses[preview.type]" class="node-use">{{ nodeUses[preview.type] }}</p>
           <NodeConfig :key="preview.type" :node="preview" :graph="draft" readonly />
         </div>
         <div v-else-if="node" class="inspector-content">
