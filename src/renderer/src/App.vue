@@ -24,7 +24,7 @@ onUnmounted(() => unsubscribe?.())
 </script>
 
 <template>
-  <UApp>
+  <UApp :toaster="{ duration: 3000, max: 3, position: 'top-right' }">
     <div class="shell">
       <header class="topbar">
         <RouterLink to="/" class="brand" aria-label="KHooks 首页">
