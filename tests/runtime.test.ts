@@ -88,6 +88,48 @@ it('加载旧数据时替换搜狐、移除 CIP.CC 并停用无可用站点的�
   expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(store.state)
 })
 
+it('手动运行保存可跨重启读取的 IP 基线，并保留最后一次采纳的地址', async () => {
+  const file = await storageFile()
+  const store = new Storage(file)
+  await store.open()
+  let currentIp = '203.0.113.10'
+  const fetcher: Fetch = async () => new Response(currentIp)
+  const engine = new Engine(store, fetcher)
+  engines.push(engine)
+  const { id, enabled, ...graph } = {
+    id: 'demo', enabled: false, name: '手动运行 IP 流程',
+    nodes: [
+      { id: 'ip', type: 'ip', x: 0, y: 0, seconds: 60, sites: [site] },
+      { id: 'data', type: 'data', x: 230, y: 0, value: '{}' }
+    ],
+    edges: [{ id: 'next', from: 'ip', to: 'data', port: 'next' }]
+  } satisfies Workflow
+  await engine.save({ ...graph, id, enabled })
+  await engine.run(id, graph)
+  expect(store.state.runs[0].steps[0].output).toMatchObject({ previousIp: null, winnerIp: '203.0.113.10' })
+  expect(store.state.samples[id]).toMatchObject({ previousIp: null, winnerIp: '203.0.113.10' })
+
+  const reopened = new Storage(file)
+  await reopened.open()
+  const restarted = new Engine(reopened, fetcher)
+  engines.push(restarted)
+  currentIp = '203.0.113.11'
+  await restarted.run(id, graph)
+  expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: '203.0.113.10', winnerIp: '203.0.113.11' })
+
+  currentIp = ''
+  await restarted.run(id, graph)
+  expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: '203.0.113.11', winnerIp: null })
+  expect(reopened.state.baselines[id]).toBe('203.0.113.11')
+
+  const changedGraph = { ...graph, nodes: graph.nodes.map((node) => node.type === 'ip'
+    ? { ...node, sites: [{ ...site, id: 'aws' as const }] } : node) }
+  currentIp = '203.0.113.12'
+  await restarted.run(id, changedGraph)
+  expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: null, winnerIp: '203.0.113.12' })
+  expect(reopened.state.baselines[id]).toBe('203.0.113.11')
+})
+
 it('跨重启保留基线，首次不执行，同一变化只请求一次并记录命中的分支', async () => {
   let current = '203.0.113.10'
   let probes = 0

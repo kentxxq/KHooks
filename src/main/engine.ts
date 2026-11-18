@@ -17,6 +17,14 @@ function ipSiteKey(graph?: Graph): string | undefined {
   return node && JSON.stringify(node.sites)
 }
 
+function recordIpSample(state: Storage['state'], id: string, results: IpSample['results']): IpSample {
+  const previousIp = Object.hasOwn(state.baselines, id) ? state.baselines[id] : null
+  const sample = tally(results, previousIp, new Date().toISOString())
+  state.samples[id] = sample
+  if (sample.winnerIp) state.baselines[id] = sample.winnerIp
+  return sample
+}
+
 export class Engine {
   private readonly schedules = new Map<string, Schedule>()
   private readonly busy = new Map<string, Promise<void>>()
@@ -137,9 +145,12 @@ export class Engine {
     await this.exclusive(id, async () => {
       if (trigger.type === 'ip') {
         const results = await this.probeIpSites(trigger)
-        const baselines = this.store.state.baselines
-        const previousIp = ipSiteKey(saved) === ipSiteKey(flow) && Object.hasOwn(baselines, id) ? baselines[id] : null
-        await this.execute(flow, trigger, tally(results, previousIp, new Date().toISOString()))
+        const sample = await this.store.change((state) => {
+          const current = state.workflows.find((item) => item.id === id)
+          if (ipSiteKey(current) !== ipSiteKey(flow)) return tally(results, null, new Date().toISOString())
+          return recordIpSample(state, id, results)
+        })
+        await this.execute(flow, trigger, sample)
       } else {
         await this.execute(flow, trigger, { triggeredAt: new Date().toISOString() })
       }
@@ -168,11 +179,7 @@ export class Engine {
     if (this.schedules.get(flow.id) !== schedule) return
     const sample = await this.store.change((draft): IpSample | undefined => {
       if (this.schedules.get(flow.id) !== schedule || !draft.workflows.find((item) => item.id === flow.id)?.enabled) return
-      const previous = Object.hasOwn(draft.baselines, flow.id) ? draft.baselines[flow.id] : null
-      const sample = tally(results, previous, new Date().toISOString())
-      draft.samples[flow.id] = sample
-      if (sample.winnerIp) draft.baselines[flow.id] = sample.winnerIp
-      return sample
+      return recordIpSample(draft, flow.id, results)
     })
     if (sample?.previousIp && sample.winnerIp && sample.winnerIp !== sample.previousIp &&
         this.schedules.get(flow.id) === schedule && this.store.state.workflows.find((item) => item.id === flow.id)?.enabled) {
