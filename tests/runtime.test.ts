@@ -1,5 +1,5 @@
 import { createServer, type Server, type RequestListener } from 'node:http'
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Engine } from '../src/main/engine'
@@ -56,6 +56,37 @@ function workflow(base: string): Workflow {
     ]
   }
 }
+
+it('加载旧数据时替换搜狐、移除 CIP.CC 并停用无可用站点的流程', async () => {
+  const file = await storageFile()
+  const store = new Storage(file)
+  const cip = { id: 'cip', mode: 'text', path: '' }
+  const oldConfig = { type: 'ip', seconds: 1, sites: [site, { id: 'sohu', mode: 'text', path: '' }, cip] }
+  const flow = workflow('https://fake_url')
+  const previousIp = '203.0.113.10'
+  await writeFile(file, JSON.stringify({
+    ...store.state,
+    workflows: [
+      { ...flow, enabled: true, nodes: [{ ...flow.nodes[0], ...oldConfig }, ...flow.nodes.slice(1)] },
+      { ...flow, id: 'cip-only', enabled: true, nodes: [{ ...flow.nodes[0], ...oldConfig, sites: [cip] }, ...flow.nodes.slice(1)] }
+    ],
+    components: [{ id: 'legacy', name: '旧触发器', config: oldConfig }],
+    baselines: { [flow.id]: previousIp },
+    samples: { [flow.id]: { winnerIp: previousIp } }
+  }))
+
+  await store.open()
+
+  const expectedSites = [site, { id: 'kentxxq', mode: 'json', path: '$.ip' }]
+  expect(store.state.workflows[0].nodes[0]).toMatchObject({ sites: expectedSites })
+  expect(store.state.workflows[0].enabled).toBe(true)
+  expect(store.state.workflows[1]).toMatchObject({ enabled: false })
+  expect(store.state.workflows[1].nodes[0]).toMatchObject({ sites: [] })
+  expect(store.state.components[0].config).toMatchObject({ sites: expectedSites })
+  expect(store.state.baselines).not.toHaveProperty(flow.id)
+  expect(store.state.samples).not.toHaveProperty(flow.id)
+  expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(store.state)
+})
 
 it('跨重启保留基线，首次不执行，同一变化只请求一次并记录命中的分支', async () => {
   let current = '203.0.113.10'

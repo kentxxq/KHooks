@@ -82,7 +82,7 @@ export function tally(results: SiteResult[], previousIp: string | null, checkedA
 const aiInstruction = `把用户请求转成一个 JSON 对象，格式为 {name,nodes,edges}。只返回 JSON。节点通用字段 {id,type,x,y}，id 用英文数字或连字符，x、y 为画布坐标且节点间隔至少 240 像素。节点类型：
 manual 无其他参数，输出 triggeredAt。
 interval 需要 seconds（1 到 86400），输出 triggeredAt。
-ip 需要 seconds 和 sites 数组。每个站点 {id,mode,path}，id 从 ${Object.keys(sites).join('/')} 选择。pconline 使用 json 和 $.ip，ipify 可用 text 或 json（$.ip），其他站点使用 text（path 为 ""）。输出 results（数组元素含 id 和 ip 或 error）、distinctIpCount、votes、winnerIp、winnerVotes、previousIp、checkedAt。
+ip 需要 seconds 和 sites 数组。每个站点 {id,mode,path}，id 从 ${Object.keys(sites).join('/')} 选择。pconline 和 kentxxq 使用 json 和 $.ip，ipify 可用 text 或 json（$.ip），其他站点使用 text（path 为 ""）。输出 results（数组元素含 id 和 ip 或 error）、distinctIpCount、votes、winnerIp、winnerVotes、previousIp、checkedAt。
 condition 需要 field（节点ID.字段，例如 trigger.distinctIpCount）、operator（eq/ne/gt/gte/lt/lte/exists）、value（比较值写成字符串），输出 matched。
 http 需要 method（GET/POST/PUT/PATCH/DELETE/HEAD）、url、headers（{name,value} 数组）、body（JSON 字符串或空字符串），输出 status。URL、请求头值和 JSON 字符串值可引用 {{节点ID.字段}}。未知目标地址用 https://fake_url，敏感值用 REPLACE_ME。
 delay 需要 seconds（1 到 86400），等待后输出 seconds。
