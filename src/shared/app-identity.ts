@@ -1,0 +1,5 @@
+export const productName = 'KHooks'
+export const developmentProductName = 'KHooks Dev'
+export const appUserModelId = 'com.kentxxq.khooks'
+export const developmentAppUserModelId = 'com.kentxxq.khooks.development'
+export const windowsDevelopmentRuntimePrefix = 'tmpfile-AI-khooks-dev-runtime-'

@@ -1,0 +1,26 @@
+appId: com.kentxxq.khooks
+productName: KHooks
+artifactName: KHooks-Setup-${version}-${arch}.${ext}
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+  - resources/icon.png
+publish:
+  provider: github
+  owner: kentxxq
+  repo: KHooks
+win:
+  target: nsis
+  icon: resources/icon.ico
+  verifyUpdateCodeSignature: false
+nsis:
+  oneClick: true
+  perMachine: false
+  createStartMenuShortcut: true
+  runAfterFinish: false
+  installerIcon: icon.ico
+  installerHeaderIcon: icon.ico
+  uninstallerIcon: icon.ico

@@ -1,0 +1,55 @@
+import type { ComponentInput, Graph, NodeComponent, SiteConfig, SiteId, Workflow } from './workflow'
+
+export type SiteResult = { id: SiteId; ip: string; error?: never } | { id: SiteId; ip?: never; error: string }
+export type IpSample = {
+  results: SiteResult[]
+  distinctIpCount: number
+  votes: Record<string, number>
+  winnerIp: string | null
+  winnerVotes: number
+  previousIp: string | null
+  checkedAt: string
+}
+
+export type RunStep = { nodeId: string; type: string; output?: unknown; error?: string }
+export type Run = {
+  id: string
+  workflowId: string
+  name: string
+  startedAt: string
+  finishedAt: string | null
+  status: 'running' | 'success' | 'failed' | 'interrupted'
+  steps: RunStep[]
+  edges: string[]
+  workflow: Workflow
+}
+
+export type Theme = 'light' | 'dark'
+export type Settings = { login: boolean; aiUrl: string; aiModel: string; hasAiKey: boolean; theme: Theme }
+export type Update = { state: 'disabled' | 'idle' | 'checking' | 'available' | 'current' | 'unpublished' | 'downloading' | 'installing' | 'error'; version?: string; percent?: number; error?: string }
+export type Snapshot = {
+  workflows: Workflow[]
+  components: NodeComponent[]
+  samples: Record<string, IpSample>
+  runs: Run[]
+  settings: Settings
+  update: Update
+  version: string
+}
+
+export interface Desktop {
+  snapshot(): Promise<Snapshot>
+  save(workflow: Workflow): Promise<void>
+  saveComponent(component: ComponentInput): Promise<void>
+  remove(id: string): Promise<void>
+  enable(id: string, enabled: boolean): Promise<void>
+  run(id: string, draft?: Graph): Promise<void>
+  probe(site: SiteConfig): Promise<SiteResult>
+  settings(settings: Omit<Settings, 'hasAiKey' | 'theme'> & { aiKey?: string }): Promise<void>
+  testAi(settings: { aiUrl: string; aiModel: string; aiKey?: string }): Promise<void>
+  setTheme(theme: Theme): Promise<void>
+  generate(prompt: string): Promise<Workflow>
+  update(action: 'check' | 'apply'): Promise<Update>
+  subscribe(callback: () => void): () => void
+}
+export type Invocation = Exclude<keyof Desktop, 'subscribe'>

@@ -1,0 +1,37 @@
+name: 发布 Windows 安装包
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: voidzero-dev/setup-vp@v1.22.0
+        with:
+          node-version-file: .node-version
+      - name: 校验版本标签
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$' -or $env:GITHUB_REF_NAME -ne "v$version") {
+            throw '版本标签必须与 package.json 中的正式版本一致'
+          }
+      - run: vp run test
+      - run: vp run build
+      - run: vp run typecheck
+      - run: vp run package:win
+      - name: 发布更新文件
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(Get-ChildItem dist/KHooks-Setup-*.exe, dist/KHooks-Setup-*.exe.blockmap, dist/latest.yml)
+          if ($assets.Count -ne 3) { throw '发布文件不完整' }
+          gh release create $env:GITHUB_REF_NAME $assets.FullName --verify-tag --generate-notes

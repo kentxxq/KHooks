@@ -1,0 +1,54 @@
+{
+  "version": 2,
+  "skills": {
+    "audit": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/audit/SKILL.md",
+      "computedHash": "e520a31913bc35b08b5dca6d134008558c84469cfa8250111fc60a8a8866b50f"
+    },
+    "design": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/design/SKILL.md",
+      "computedHash": "4ea565db09c7d15827c81bd38dd7bb919d2fba24486442116184efb5b9c02f45"
+    },
+    "ken-commit-push": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/ken-commit-push/SKILL.md",
+      "computedHash": "ecff48031884ccc9d9d7dc2ea5b075ff0ecb582149fc241e65bb94f2d8e5c24c"
+    },
+    "refactor": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/refactor/SKILL.md",
+      "computedHash": "5568659572f897ceb35c971d9601f327715f620c722873216d629b01c2405793"
+    },
+    "review": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/review/SKILL.md",
+      "computedHash": "38f521757ca8aefccc024638e64a2a9fee59338d55fa3e376ec9eeef7fdb48ac"
+    },
+    "test": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/test/SKILL.md",
+      "computedHash": "9569ff4ef37ff5f158a436a5c125ca4331df503598fbae97a6587e28df1e600b"
+    },
+    "ui-explore": {
+      "source": "kentxxq/public-files",
+      "commit": "6416e0b0ca5cc4dd502d955fb698041ba3f817c7",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/ui-explore/SKILL.md",
+      "computedHash": "33f8aca359e8b71fd0e61142652a80728eb32ab18df90c12e3f8dc5f7b73a8de"
+    }
+  }
+}
