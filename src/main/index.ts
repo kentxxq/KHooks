@@ -8,7 +8,7 @@ import { Engine } from './engine'
 import { generateGraph, probe, testAiService, type Fetch } from './network'
 import { Storage } from './storage'
 import { WindowsEvents } from './windows-events'
-import { componentSchema, parseHttpUrl, siteConfig, workflowSchema } from '../shared/workflow'
+import { componentSchema, parseHttpUrl, siteConfig, zodMessage } from '../shared/workflow'
 import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc'
 import {
   appUserModelId, developmentAppUserModelId, developmentProductName, productName, windowsDevelopmentRuntimePrefix
@@ -42,7 +42,7 @@ let tray: Tray | undefined
 let quitting = false
 let draining = false
 let update: Update = { state: app.isPackaged ? 'idle' : 'disabled' }
-const store = new Storage(join(app.getPath('userData'), 'khooks.json'), notify)
+const store = new Storage(join(app.getPath('userData'), 'khooks.json'), notify, console.error)
 const fetcher: Fetch = (url, init) => net.fetch(String(url), init)
 const engine = new Engine(store, fetcher, console.error, (title, body) => {
   if (windows && development && !brandedDevelopment) {
@@ -207,7 +207,8 @@ function registerIpc(): void {
     components: store.state.components,
     settings: getSettings(), update, version: app.getVersion()
   }))
-  bind('save', (flow) => engine.save(workflowSchema.parse(flow)))
+  // 不做预解析:engine.save 内部已做 schema parse 并转译中文,预解析会抢先抛出 zod 英文 dump。
+  bind('save', (flow) => engine.save(flow))
   bind('saveComponent', async (input) => {
     const component = componentSchema.parse({ ...input, id: randomUUID() })
     await store.change((state) => { state.components.push(component) })
@@ -227,7 +228,10 @@ function registerIpc(): void {
   })
   bind('probe', (config) => probe(siteConfig.parse(config), fetcher))
   bind('settings', async (input) => {
-    const { login, aiUrl, aiModel, aiKey } = settingsInput.parse(input)
+    // 设置 schema 拒绝时转译为中文,避免渲染层 toast 弹出 zod 英文 dump。
+    const parsed = settingsInput.safeParse(input)
+    if (!parsed.success) throw new Error('设置无效：' + zodMessage(parsed.error))
+    const { login, aiUrl, aiModel, aiKey } = parsed.data
     let url = ''
     if (aiUrl.trim()) url = parseHttpUrl(aiUrl.trim()).toString()
     let encrypted: string | undefined

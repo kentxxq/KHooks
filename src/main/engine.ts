@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { setTimeout as wait } from 'node:timers/promises'
 import type { IpSample, Run, RunStep } from '../shared/ipc'
-import { graphSchema, isTrigger, validateConnections, validateWorkflow, workflowSchema,
+import { graphSchema, isTrigger, validateConnections, validateWorkflow, workflowSchema, zodMessage,
   type FlowEdge, type FlowNode, type Graph, type Workflow } from '../shared/workflow'
 import { executeAction } from './actions'
 import { watchFiles } from './file-watch'
@@ -15,6 +15,9 @@ type Schedule = { controller: AbortController; config?: string; system: boolean;
 type Job = QueuedTask & { durable?: boolean }
 type Active = { controller: AbortController; done: Promise<void> }
 type Sample = (state: State) => { payload: unknown } | undefined
+
+// 持久队列按流程的待处理任务上限,防止高频触发时无限堆积写满磁盘。
+const queueLimit = 50
 
 function triggerOf(flow?: Graph): Trigger | undefined {
   return flow?.nodes.find((node): node is Trigger => isTrigger(node))
@@ -59,8 +62,11 @@ function historySnapshot(flow: Workflow): Workflow {
 
 function historyOutput(node: FlowNode, output: unknown): unknown {
   switch (node.type) {
-    case 'http':
-    case 'httpPoll': return { status: (output as { status: number }).status }
+    case 'http': return { status: (output as { status: number }).status }
+    case 'httpPoll': {
+      const { status, triggeredAt } = output as { status: number; triggeredAt: string }
+      return { status, triggeredAt }
+    }
     case 'fileRead': {
       const { path } = output as { path: string }
       return { path }
@@ -159,6 +165,8 @@ export class Engine {
     }
     let previousTime = new Date()
     let lastError = ''
+    // 提交失败待重试的 clock 分钟键;clockDates 的持久去重保证重试不会双触发。
+    let pendingClock: string | undefined
     const delay = trigger.type === 'interval' && trigger.clock ? 1000 : trigger.seconds * 1000
     const tick = async () => {
       if (signal.aborted) return
@@ -183,17 +191,27 @@ export class Engine {
           const clock = trigger.clock
           const key = minuteKey(now)
           const elapsed = now.getTime() - previousTime.getTime()
-          const due = !clock || (elapsed > 0 && elapsed <= 5000 && key !== minuteKey(previousTime) &&
+          if (pendingClock && pendingClock !== key) pendingClock = undefined
+          const due = !clock || pendingClock === key || (elapsed > 0 && elapsed <= 5000 && key !== minuteKey(previousTime) &&
             key.endsWith('T' + clock.time) && (!clock.days || clock.days.includes(now.getDay())))
           previousTime = now
-          if (due) await submit((state) => {
-            if (clock) {
-              const dates = Object.hasOwn(state.clockDates, id) ? state.clockDates[id] : []
-              if (dates.includes(key)) return
-              state.clockDates = { ...state.clockDates, [id]: [...dates, key] }
+          if (due) {
+            try {
+              await submit((state) => {
+                if (clock) {
+                  const dates = Object.hasOwn(state.clockDates, id) ? state.clockDates[id] : []
+                  if (dates.includes(key)) return
+                  state.clockDates = { ...state.clockDates, [id]: [...dates, key] }
+                }
+                return { payload: { triggeredAt: now.toISOString() } }
+              })
+              pendingClock = undefined
+            } catch (error) {
+              // 提交失败时记住该分钟,下一 tick 同分钟内重试,避免定时事件静默丢失。
+              pendingClock = key
+              throw error
             }
-            return { payload: { triggeredAt: now.toISOString() } }
-          })
+          }
         }
         lastError = ''
       } catch (error) {
@@ -209,7 +227,13 @@ export class Engine {
   }
 
   async save(input: Workflow): Promise<void> {
-    const flow = workflowSchema.parse({ ...input, enabled: false })
+    // schema 拒绝时转译为中文摘要,避免渲染层 toast 弹出 zod 英文 dump。
+    let flow: Workflow
+    try {
+      flow = workflowSchema.parse({ ...input, enabled: false })
+    } catch (error) {
+      throw new Error('流程配置无效：' + zodMessage(error))
+    }
     const reschedule = await this.store.change((draft) => {
       const previous = draft.workflows.find((item) => item.id === flow.id)
       flow.enabled = previous?.enabled ?? false
@@ -273,7 +297,15 @@ export class Engine {
     const saved = this.store.state.workflows.find((item) => item.id === id)
     if (!saved) throw new Error('流程不存在')
     const preview = draft !== undefined
-    const flow = preview ? { ...graphSchema.parse(draft), id, enabled: false } : saved
+    // 试跑草稿 schema 拒绝时同样转译,避免渲染层 toast 弹出 zod 英文 dump。
+    let flow: Workflow = saved
+    if (preview) {
+      try {
+        flow = { ...graphSchema.parse(draft), id, enabled: false }
+      } catch (error) {
+        throw new Error('流程配置无效：' + zodMessage(error))
+      }
+    }
     const error = validateWorkflow(flow)
     if (error) throw new Error(error)
     const trigger = triggerOf(flow)
@@ -353,8 +385,14 @@ export class Engine {
         if (options.manual && busy && policy === 'skip') throw new Error('流程正在执行')
         const event = sample(state)
         if (!event || (busy && policy === 'skip')) return
+        if (policy === 'queue' && state.queue.filter((item) => item.flow.id === id).length >= queueLimit) {
+          // 自动事件按 skip 语义丢弃,手动运行明确报错,避免队列无限增长。
+          if (options.manual) throw new Error('排队任务已达上限')
+          return
+        }
         job = {
           id: randomUUID(), flow: structuredClone(flow), payload: event.payload,
+          source: options.preview ? 'preview' : options.manual ? 'manual' : 'automatic',
           allowDisabled: Boolean(options.manual && !current.enabled)
         }
         if (policy === 'queue') {
@@ -396,7 +434,11 @@ export class Engine {
       this.busy.delete(id)
     })
     this.busy.set(id, { controller, done })
-    void done.then(() => this.pump(id), (error: Error) => this.report(error.message))
+    // 执行异常(如步骤记录写盘失败)后也要继续泵送,否则持久队列停摆。
+    void done.then(() => this.pump(id), (error: Error) => {
+      this.report(error.message)
+      this.pump(id)
+    })
     return { id: job.id, done }
   }
 
@@ -406,7 +448,8 @@ export class Engine {
     if (!trigger) throw new Error('请添加触发器')
     const run: Run = {
       id: randomUUID(), workflowId: flow.id, name: flow.name, workflow: historySnapshot(flow),
-      taskId: job.id, startedAt: new Date().toISOString(), finishedAt: null, status: 'running', steps: [], edges: []
+      taskId: job.id, source: job.source, startedAt: new Date().toISOString(), finishedAt: null,
+      status: 'running', steps: [], edges: []
     }
     const started = await this.store.change((draft) => {
       if (durable) {
@@ -431,7 +474,9 @@ export class Engine {
     let failed = false
     const executeNode = async (node: FlowNode, incoming?: FlowEdge): Promise<void> => {
       if (signal.aborted || failed) return
-      const step: RunStep & { attempts: number } = { nodeId: node.id, type: node.type, attempts: 0 }
+      const step: RunStep & { attempts: number } = {
+        nodeId: node.id, type: node.type, startedAt: new Date().toISOString(), attempts: 0
+      }
       let port: FlowEdge['port'] = 'next'
       const edges = outgoing.get(node.id) ?? []
       let output: unknown
@@ -440,12 +485,16 @@ export class Engine {
             node.type === 'fileWatch' || node.type === 'httpPoll' || node.type === 'system') {
           output = payload
           step.attempts = 1
+          if (node.type === 'httpPoll') {
+            const host = URL.parse(node.url)?.host
+            if (host) step.details = { host }
+          }
         } else {
           while (true) {
             signal.throwIfAborted()
             step.attempts++
             try {
-              output = await executeAction(node, outputs, signal, services)
+              output = await executeAction(node, outputs, signal, services, step)
               signal.throwIfAborted()
               break
             } catch (error) {
@@ -468,6 +517,7 @@ export class Engine {
           } }
         }
       }
+      step.finishedAt = new Date().toISOString()
       outputs[node.id] = output
       await this.store.change((draft) => {
         const record = draft.runs.find((item) => item.id === run.id)

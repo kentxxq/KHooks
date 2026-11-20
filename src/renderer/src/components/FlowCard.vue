@@ -28,12 +28,15 @@ const name = computed(() => props.data.node.name?.trim())
     <template v-else>
       <div v-if="data.node.type === 'http'" class="node-detail">{{ data.node.method }}</div>
       <div class="branch-labels">
+        <!-- 条件节点运行期只按「是/否」出口调度,没有失败出口。 -->
         <template v-if="data.node.type === 'condition'">
           <span class="branch-port">是<Handle id="yes" type="source" :position="Position.Right" /></span>
           <span class="branch-port">否<Handle id="no" type="source" :position="Position.Right" /></span>
         </template>
-        <span v-else class="branch-port">成功<Handle id="next" type="source" :position="Position.Right" /></span>
-        <span class="branch-port">失败<Handle id="error" type="source" :position="Position.Right" /></span>
+        <template v-else>
+          <span class="branch-port">成功<Handle id="next" type="source" :position="Position.Right" /></span>
+          <span class="branch-port">失败<Handle id="error" type="source" :position="Position.Right" /></span>
+        </template>
       </div>
     </template>
   </div>

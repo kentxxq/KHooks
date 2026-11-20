@@ -71,10 +71,10 @@ internal static class Program
                     Refresh();
                 }
             }
-            catch (Exception)
+            catch (Exception error)
             {
-                Console.Error.WriteLine("无法读取媒体会话");
-                Environment.Exit(1);
+                // 媒体会话不可用时只降级:输出一次错误并保持空转,网络/屏幕监听继续工作。
+                Console.Error.WriteLine("媒体会话不可用，已跳过媒体事件监听：" + error.Message);
             }
         }
 

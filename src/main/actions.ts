@@ -2,6 +2,7 @@ import { open, stat } from 'node:fs/promises'
 import { isAbsolute, normalize } from 'node:path'
 import { setTimeout as wait } from 'node:timers/promises'
 import writeFileAtomic from 'write-file-atomic'
+import type { RunStep } from '../shared/ipc'
 import { evaluate, parseHttpUrl, readField, renderJson, renderTemplate, type FlowNode } from '../shared/workflow'
 import { contentLimit, fetchData, runLlm, type AiOptions, type Fetch } from './network'
 
@@ -48,7 +49,8 @@ async function readLocalFile(path: string, signal: AbortSignal): Promise<string>
 
 export async function executeAction(
   node: Action, outputs: Outputs, signal: AbortSignal,
-  services: { fetcher: Fetch; ai: () => AiOptions; notify: (title: string, body: string) => void }
+  services: { fetcher: Fetch; ai: () => AiOptions; notify: (title: string, body: string) => void },
+  trace: Pick<RunStep, 'details' | 'notification'>
 ): Promise<unknown> {
   switch (node.type) {
     case 'condition': {
@@ -57,8 +59,11 @@ export async function executeAction(
       return { matched: node.group?.match === 'any' ? rules.some(matches) : rules.every(matches) }
     }
     case 'http': {
+      const details: NonNullable<RunStep['details']> = { method: node.method }
+      trace.details = details
       let url: URL
       try { url = parseHttpUrl(renderTemplate(node.url, outputs)) } catch { throw new Error('HTTP 请求地址无效') }
+      details.host = url.host
       let headers: Headers
       try {
         headers = new Headers(node.headers.map(({ name, value }) => [name, renderTemplate(value, outputs)]))
@@ -68,23 +73,31 @@ export async function executeAction(
         body = JSON.stringify(renderJson(JSON.parse(node.body), outputs))
         if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
       }
-      return fetchData(services.fetcher, url, { method: node.method, headers, body }, signal)
+      return fetchData(services.fetcher, url, { method: node.method, headers, body }, signal, {
+        onStatus: (status) => { details.status = status }
+      })
     }
     case 'data':
       return { value: node.mapping ? Object.fromEntries(node.mapping.map((field) => [
         field.key.trim(), convert(renderJson(field.value, outputs), field.convert)
       ])) : renderJson(JSON.parse(node.value), outputs) }
     case 'notification': {
+      delete trace.notification
       const title = renderTemplate(node.title, outputs)
       if (!title.trim()) throw new Error('通知标题为空')
-      services.notify(title, renderTemplate(node.body, outputs))
+      const body = renderTemplate(node.body, outputs)
+      trace.notification = { title, body }
+      services.notify(title, body)
       return { sent: true }
     }
     case 'fileRead':
     case 'fileWrite': {
+      const details: NonNullable<RunStep['details']> = { format: node.format }
+      trace.details = details
       const rawPath = renderTemplate(node.path.trim(), outputs)
       if (!isAbsolute(rawPath) || /^\\\\[?.]\\/.test(rawPath)) throw new Error('文件路径无效')
       const path = normalize(rawPath)
+      details.path = path
       if (node.type === 'fileRead') {
         const content = await readLocalFile(path, signal)
         return { path, content: node.format === 'json' ? parseFileJson(content.replace(/^\uFEFF/, '')) : content }
@@ -99,9 +112,13 @@ export async function executeAction(
       return { path, bytes }
     }
     case 'llm': {
+      const details: NonNullable<RunStep['details']> = { format: node.format }
+      trace.details = details
       const prompt = renderTemplate(node.prompt, outputs)
       if (!prompt.trim()) throw new Error('用户提示为空')
-      return { value: await runLlm(services.ai(), renderTemplate(node.system, outputs), prompt, node.format, services.fetcher, signal) }
+      const ai = services.ai()
+      details.model = ai.model
+      return { value: await runLlm(ai, renderTemplate(node.system, outputs), prompt, node.format, services.fetcher, signal) }
     }
     case 'delay': {
       await wait(node.seconds * 1000, undefined, { signal })

@@ -3,8 +3,9 @@ import { createInterface } from 'node:readline'
 import { z } from 'zod'
 import { systemEventSchema } from '../shared/workflow'
 
-const eventSchema = z.strictObject({
-  event: systemEventSchema, state: z.boolean(), appId: z.string().optional(), triggeredAt: z.iso.datetime()
+// 非媒体事件不带 appId,归一化为 null,与手动运行载荷及 UI 输出字段形状一致。
+export const eventSchema = z.strictObject({
+  event: systemEventSchema, state: z.boolean(), appId: z.string().nullish().transform((value) => value ?? null), triggeredAt: z.iso.datetime()
 })
 type Event = z.infer<typeof eventSchema>
 type Listener = (event: Event) => void

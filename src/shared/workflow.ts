@@ -217,6 +217,22 @@ export function parentsOf(graph: Graph, nodeId: string): FlowNode[] {
   return parents
 }
 
+// zod 拒绝输入时把首个 issue 转成中文摘要,避免英文 dump 直接进入渲染层 toast。
+export function zodMessage(error: unknown): string {
+  const issue = error instanceof z.ZodError ? error.issues[0] : undefined
+  if (!issue) return '格式不正确'
+  // 路径以 nodes[2].seconds 形式拼接,数字段用方括号。
+  const field = issue.path.map((part) => typeof part === 'number' ? `[${part}]` : '.' + String(part))
+    .join('').replace(/^\./, '')
+  const name = field ? field + ' ' : ''
+  if (issue.code === 'too_small') return `${name}不能小于 ${issue.minimum}`
+  if (issue.code === 'too_big') return `${name}不能大于 ${issue.maximum}`
+  if (issue.code === 'invalid_type') return name + '类型无效'
+  if (issue.code === 'invalid_format') return name + '格式无效'
+  if (issue.code === 'unrecognized_keys') return name + '包含不支持的字段'
+  return name + issue.message
+}
+
 export function validateConnections(graph: Graph): string | undefined {
   const nodes = new Map(graph.nodes.map((node) => [node.id, node]))
   if (nodes.size !== graph.nodes.length) return '节点标识重复'
@@ -229,6 +245,8 @@ export function validateConnections(graph: Graph): string | undefined {
     const target = nodes.get(edge.to)
     if (edgeIds.has(edge.id) || !source || !target || isTrigger(target)) return '连线端点无效'
     edgeIds.add(edge.id)
+    // 条件节点运行期只按「是/否」出口调度,没有失败出口,直接拦截死分支。
+    if (edge.port === 'error' && source.type === 'condition') return '条件节点没有失败出口'
     const validPort = edge.port === 'error' ? !isTrigger(source)
       : source.type === 'condition' ? edge.port !== 'next' : edge.port === 'next'
     if (!validPort) return '连线出口无效'
@@ -274,7 +292,8 @@ export function validateWorkflow(graph: Graph): string | undefined {
       if (values.flatMap(fieldRefs).some((field) => !validRef(field))) return '设置数据只能引用上游字段'
       if (node.mapping) {
         const keys = node.mapping.map((field) => field.key.trim())
-        if (keys.some((key) => !key) || new Set(keys).size !== keys.length) return '映射字段名称不能为空或重复'
+        // 字段引用按点号分路径(readField),含点号的映射键在下游不可达,直接拦截。
+        if (keys.some((key) => !key || key.includes('.')) || new Set(keys).size !== keys.length) return '映射字段名称不能为空、重复或包含点号'
       } else {
         try { JSON.parse(node.value) } catch { return '设置数据需要有效的 JSON' }
       }
@@ -283,6 +302,14 @@ export function validateWorkflow(graph: Graph): string | undefined {
       if (!isAbsoluteFilePath(node.path) && !node.path.trim().match(/^\{\{\s*[\w.-]+\s*\}\}$/)) return '文件节点需要绝对路径或上游路径引用'
       const values = node.type === 'fileWrite' ? [node.path, node.content] : [node.path]
       if (values.flatMap(fieldRefs).some((field) => !validRef(field))) return '文件节点只能引用上游字段'
+      if (node.type === 'fileWrite') {
+        // 运行时按 UTF-8 字节限制写入(actions),校验按同一度量拦截,避免多字节内容保存后必然失败。
+        if (new TextEncoder().encode(node.content).length > 262144) return '写入内容超过 256 KB'
+        // 运行时在模板渲染前解析 JSON(actions 的 parseFileJson),content 编写时就必须合法。
+        if (node.format === 'json') {
+          try { JSON.parse(node.content) } catch { return '写入文件需要有效的 JSON' }
+        }
+      }
     }
     if (node.type === 'llm') {
       if (!node.prompt.trim()) return '请输入用户提示'

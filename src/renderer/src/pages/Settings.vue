@@ -138,14 +138,14 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
       <div class="section-title"><UIcon name="i-lucide-sparkles" /> AI 服务</div>
       <div class="fields">
         <label for="ai-url">OpenAI 兼容服务地址</label>
-        <UInput id="ai-url" v-model="aiUrl" class="full-width" placeholder="例如 https://api.openai.com/v1"
+        <UInput id="ai-url" v-model="aiUrl" class="full-width" :maxlength="1000" placeholder="例如 https://api.openai.com/v1"
           :disabled="testingAi" :aria-invalid="Boolean(aiUrlError)"
           :aria-describedby="aiUrlError ? 'ai-url-error' : undefined" @update:model-value="aiUrlError = ''" />
         <p v-if="aiUrlError" id="ai-url-error" class="field-error" role="alert">{{ aiUrlError }}</p>
         <label for="ai-model">模型</label>
-        <UInput id="ai-model" v-model="aiModel" class="full-width" :disabled="testingAi" />
+        <UInput id="ai-model" v-model="aiModel" class="full-width" :maxlength="200" :disabled="testingAi" />
         <label for="ai-key">API 密钥 <span v-if="hasAiKey" class="success-text">· 已保存</span></label>
-        <UInput id="ai-key" type="password" v-model="aiKey" class="full-width" autocomplete="off" :disabled="testingAi" />
+        <UInput id="ai-key" type="password" v-model="aiKey" class="full-width" :maxlength="4000" autocomplete="off" :disabled="testingAi" />
       </div>
       <div class="actions">
         <UButton :loading="saving" :disabled="testingAi" @click="save()">保存设置</UButton>

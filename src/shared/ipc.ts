@@ -11,7 +11,18 @@ export type IpSample = {
   checkedAt: string
 }
 
-export type RunStep = { nodeId: string; type: string; attempts?: number; output?: unknown; error?: string }
+export type RunSource = 'automatic' | 'manual' | 'preview'
+export type RunStep = {
+  nodeId: string
+  type: string
+  startedAt?: string
+  finishedAt?: string
+  attempts?: number
+  details?: Record<string, string | number>
+  notification?: { title: string; body: string }
+  output?: unknown
+  error?: string
+}
 export type Run = {
   id: string
   workflowId: string
@@ -20,6 +31,7 @@ export type Run = {
   finishedAt: string | null
   status: 'running' | 'success' | 'failed' | 'interrupted' | 'cancelled'
   taskId?: string
+  source?: RunSource
   steps: RunStep[]
   edges: string[]
   workflow: Workflow

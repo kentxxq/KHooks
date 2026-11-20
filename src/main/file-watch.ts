@@ -26,7 +26,8 @@ export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Cha
   let reading = false
   let pending = false
   let lastError = ''
-  const quietAt = new Map<string, number>()
+  // quiet:合并窗口,每次事件顺延;limit:同一路径突发的最长等待,超时强制放行一次。
+  const quietAt = new Map<string, { quiet: number; limit: number }>()
   const pathKey = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value
 
   function refresh(delay = 300): void {
@@ -46,7 +47,14 @@ export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Cha
       const current = watch(target, (_, name) => {
         if (name) {
           const candidate = pathKey(join(target, name))
-          if (target === path || candidate === pathKey(path)) quietAt.set(candidate, Date.now() + 300)
+          if (target === path || candidate === pathKey(path)) {
+            const now = Date.now()
+            const pending = quietAt.get(candidate)
+            quietAt.set(candidate, {
+              quiet: now + 300,
+              limit: pending && pending.limit > now ? pending.limit : now + 5000
+            })
+          }
         }
         refresh()
       })
@@ -84,9 +92,10 @@ export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Cha
       const old = previous
       const now = Date.now()
       let next = Infinity
-      for (const [key, time] of quietAt) {
-        if (time <= now) quietAt.delete(key)
-        else next = Math.min(next, time)
+      for (const [key, slot] of quietAt) {
+        // 合并窗口过期或到达突发上限都放行;放行后下一次事件重新起算 limit。
+        if (slot.quiet <= now || slot.limit <= now) quietAt.delete(key)
+        else next = Math.min(next, slot.quiet, slot.limit)
       }
       if (Number.isFinite(next)) refresh(next - now)
       lastError = ''

@@ -44,7 +44,8 @@ const conditionRules = computed<Rule[]>(() => props.node.type === 'condition'
   ? props.node.group?.rules ?? [asRule(props.node)] : [])
 const hasTemplateFields = computed(() => ['http', 'data', 'fileRead', 'fileWrite', 'llm'].includes(props.node.type))
 type Action = Extract<FlowNode, { retry?: unknown }>
-const actionNode = computed(() => isTrigger(props.node) ? undefined : props.node as Action)
+// 条件节点只有「是/否」出口且运行期不会失败,不提供重试配置(该 computed 仅服务「失败后重试」区块)。
+const actionNode = computed(() => isTrigger(props.node) || props.node.type === 'condition' ? undefined : props.node as Action)
 const clockMode = computed(() => props.node.type === 'interval' && props.node.clock
   ? props.node.clock.days ? 'weekly' : 'daily' : 'interval')
 const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
@@ -60,6 +61,13 @@ const comparisons = [
 
 function change<N extends FlowNode>(node: N, patch: Partial<N>): void {
   emit('change', { ...node, ...patch })
+}
+
+// 数值输入防呆:空值/NaN/小于下限时回退原值,合法值取整并钳制到范围内(schema 同一约束)。
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const input = Number(value)
+  if (!Number.isFinite(input) || input < min) return fallback
+  return Math.min(Math.max(Math.round(input), min), max)
 }
 
 function toggleSite(id: SiteId, selected: boolean): void {
@@ -216,7 +224,7 @@ async function insertNotificationTitleReference(): Promise<void> {
       <template v-if="node.clock">
         <label for="clock-time">执行时间</label>
         <UInput id="clock-time" type="time" :model-value="node.clock.time" :disabled="readonly"
-          @update:model-value="change(node, { clock: { ...node.clock, time: String($event) } })" />
+          @update:model-value="change(node, { clock: { ...node.clock, time: String($event) || node.clock.time } })" />
         <div v-if="node.clock.days" class="field-group">
           <label v-for="(day, index) in weekdays" :key="day" class="check-row">
             <input type="checkbox" :checked="node.clock.days.includes(index)"
@@ -229,13 +237,13 @@ async function insertNotificationTitleReference(): Promise<void> {
     <template v-if="(node.type === 'interval' && !node.clock) || node.type === 'ip' || node.type === 'httpPoll'">
       <label for="interval">轮询间隔（秒）</label>
       <UInput id="interval" type="number" :min="1" :max="86400" :model-value="node.seconds" :disabled="readonly"
-        class="full-width" @update:model-value="change(node, { seconds: Number($event) })" />
+        class="full-width" @update:model-value="change(node, { seconds: clampNumber($event, node.seconds, 1, 86400) })" />
     </template>
 
     <template v-if="node.type === 'delay'">
       <label for="delay-seconds">等待秒数</label>
       <UInput id="delay-seconds" type="number" :min="1" :max="86400" :model-value="node.seconds" :disabled="readonly"
-        class="full-width" @update:model-value="change(node, { seconds: Number($event) })" />
+        class="full-width" @update:model-value="change(node, { seconds: clampNumber($event, node.seconds, 1, 86400) })" />
     </template>
     <template v-if="node.type === 'data'">
       <label for="data-mode">数据模式</label>
@@ -246,9 +254,9 @@ async function insertNotificationTitleReference(): Promise<void> {
       </select>
       <template v-if="node.mapping">
         <div v-for="(field, index) in node.mapping" :key="index" class="site-config">
-          <UInput :aria-label="'字段名称 ' + (index + 1)" :model-value="field.key" :disabled="readonly"
+          <UInput :aria-label="'字段名称 ' + (index + 1)" :model-value="field.key" :maxlength="200" :disabled="readonly"
             @update:model-value="updateMapping(index, { key: String($event) })" />
-          <UInput :aria-label="'字段值 ' + (index + 1)" :model-value="field.value" :disabled="readonly"
+          <UInput :aria-label="'字段值 ' + (index + 1)" :model-value="field.value" :maxlength="32000" :disabled="readonly"
             @update:model-value="updateMapping(index, { value: String($event) })" />
           <select class="input-native" :aria-label="'字段类型 ' + (index + 1)" :value="field.convert" :disabled="readonly"
             @change="updateMapping(index, { convert: ($event.target as HTMLSelectElement).value as keyof typeof conversions })">
@@ -314,7 +322,7 @@ async function insertNotificationTitleReference(): Promise<void> {
         </select>
         <template v-if="config.mode === 'json'">
           <label :for="'path-' + config.id">JSONPath</label>
-          <UInput :id="'path-' + config.id" :model-value="config.path" :disabled="readonly"
+          <UInput :id="'path-' + config.id" :model-value="config.path" :maxlength="200" :disabled="readonly"
             :aria-invalid="Boolean(pathError(config))" :aria-describedby="pathError(config) ? 'path-error-' + config.id : undefined"
             class="full-width" @update:model-value="changeSite(config, { path: String($event) })" />
           <p v-if="pathError(config)" :id="'path-error-' + config.id" class="field-error" role="alert">{{ pathError(config) }}</p>
@@ -333,7 +341,7 @@ async function insertNotificationTitleReference(): Promise<void> {
     <template v-if="node.type === 'fileWatch' || node.type === 'fileRead' || node.type === 'fileWrite'">
       <label for="local-path">路径</label>
       <div class="actions">
-        <UInput id="local-path" class="full-width" :model-value="node.path" :disabled="readonly"
+        <UInput id="local-path" class="full-width" :model-value="node.path" :maxlength="4096" :disabled="readonly"
           @update:model-value="change(node, { path: String($event) })" />
         <UButton v-if="!readonly" variant="outline" color="neutral" @click="pickPath">选择</UButton>
       </div>
@@ -360,15 +368,15 @@ async function insertNotificationTitleReference(): Promise<void> {
     </template>
     <template v-if="node.type === 'fileWrite'">
       <label for="file-content">写入内容</label>
-      <UTextarea id="file-content" :rows="4" :model-value="node.content" class="full-width code-input" :disabled="readonly"
+      <UTextarea id="file-content" :rows="4" :model-value="node.content" :maxlength="262144" class="full-width code-input" :disabled="readonly"
         @update:model-value="change(node, { content: String($event) })" />
     </template>
     <template v-if="node.type === 'llm'">
       <label for="llm-system">系统提示</label>
-      <UTextarea id="llm-system" :rows="3" :model-value="node.system" class="full-width" :disabled="readonly"
+      <UTextarea id="llm-system" :rows="3" :model-value="node.system" :maxlength="32000" class="full-width" :disabled="readonly"
         @update:model-value="change(node, { system: String($event) })" />
       <label for="llm-prompt">用户提示</label>
-      <UTextarea id="llm-prompt" :rows="4" :model-value="node.prompt" class="full-width" :disabled="readonly"
+      <UTextarea id="llm-prompt" :rows="4" :model-value="node.prompt" :maxlength="32000" class="full-width" :disabled="readonly"
         @update:model-value="change(node, { prompt: String($event) })" />
     </template>
     <template v-if="node.type === 'condition'">
@@ -391,7 +399,7 @@ async function insertNotificationTitleReference(): Promise<void> {
         </template>
       </select>
       <label :for="'condition-path-' + index">字段路径</label>
-      <UInput :id="'condition-path-' + index" :model-value="rule.field" class="full-width" :disabled="readonly"
+      <UInput :id="'condition-path-' + index" :model-value="rule.field" :maxlength="300" class="full-width" :disabled="readonly"
         @update:model-value="updateRule(index, { field: String($event) })" />
       <label :for="'operator-' + index">运算符</label>
       <select :id="'operator-' + index" class="input-native" :value="rule.operator" :disabled="readonly"
@@ -400,7 +408,7 @@ async function insertNotificationTitleReference(): Promise<void> {
       </select>
       <template v-if="rule.operator !== 'exists'">
         <label :for="'compare-value-' + index">比较值</label>
-        <UInput :id="'compare-value-' + index" :model-value="rule.value" class="full-width" :disabled="readonly"
+        <UInput :id="'compare-value-' + index" :model-value="rule.value" :maxlength="2000" class="full-width" :disabled="readonly"
           @update:model-value="updateRule(index, { value: String($event) })" />
       </template>
       <UButton v-if="!readonly && conditionRules.length > 1" variant="ghost" size="xs" color="neutral"
@@ -419,27 +427,27 @@ async function insertNotificationTitleReference(): Promise<void> {
       </select>
       </template>
       <label for="http-url">请求地址</label>
-      <UInput id="http-url" :model-value="node.url" class="full-width" :disabled="readonly"
+      <UInput id="http-url" :model-value="node.url" :maxlength="4000" class="full-width" :disabled="readonly"
         @update:model-value="change(node, { url: String($event) })" />
       <template v-if="node.type === 'http' && node.method !== 'GET' && node.method !== 'HEAD'">
         <label for="http-body">JSON 请求体</label>
-        <UTextarea id="http-body" :model-value="node.body" :rows="4" class="full-width code-input" :disabled="readonly"
+        <UTextarea id="http-body" :model-value="node.body" :rows="4" :maxlength="32000" class="full-width code-input" :disabled="readonly"
           @update:model-value="change(node, { body: String($event) })" />
       </template>
       <template v-if="node.type === 'httpPoll'">
         <label for="poll-path">JSONPath</label>
-        <UInput id="poll-path" :model-value="node.jsonPath" class="full-width" :disabled="readonly"
+        <UInput id="poll-path" :model-value="node.jsonPath" :maxlength="200" class="full-width" :disabled="readonly"
           @update:model-value="change(node, { jsonPath: String($event) })" />
       </template>
       <div class="section-row field-group">
         <h3>请求头</h3>
-        <UButton v-if="!readonly" variant="ghost" color="neutral" size="xs" icon="i-lucide-plus"
+        <UButton v-if="!readonly" variant="ghost" color="neutral" size="xs" icon="i-lucide-plus" :disabled="node.headers.length >= 30"
           @click="change(node, { headers: [...node.headers, { name: '', value: '' }] })">添加</UButton>
       </div>
       <div v-for="(header, index) in node.headers" :key="index" class="header-fields">
-        <UInput :aria-label="'请求头名称 ' + (index + 1)" :model-value="header.name" :disabled="readonly"
+        <UInput :aria-label="'请求头名称 ' + (index + 1)" :model-value="header.name" :maxlength="100" :disabled="readonly"
           @update:model-value="setHeader(index, 'name', String($event))" />
-        <UInput :aria-label="'请求头值 ' + (index + 1)" :model-value="header.value" :disabled="readonly"
+        <UInput :aria-label="'请求头值 ' + (index + 1)" :model-value="header.value" :maxlength="4000" :disabled="readonly"
           @update:model-value="setHeader(index, 'value', String($event))" />
         <UButton v-if="!readonly" variant="ghost" color="neutral" icon="i-lucide-x" aria-label="删除请求头"
           @click="change(node, { headers: node.headers.filter((_, i) => i !== index) })" />
@@ -466,10 +474,10 @@ async function insertNotificationTitleReference(): Promise<void> {
       <template v-if="actionNode.retry">
         <label for="retry-count">重试次数</label>
         <UInput id="retry-count" type="number" :min="1" :max="3" :model-value="actionNode.retry.count" :disabled="readonly"
-          @update:model-value="change(actionNode, { retry: { count: Number($event), seconds: actionNode.retry!.seconds } })" />
+          @update:model-value="change(actionNode, { retry: { count: clampNumber($event, actionNode.retry!.count, 1, 3), seconds: actionNode.retry!.seconds } })" />
         <label for="retry-seconds">重试间隔（秒）</label>
         <UInput id="retry-seconds" type="number" :min="1" :max="86400" :model-value="actionNode.retry.seconds" :disabled="readonly"
-          @update:model-value="change(actionNode, { retry: { count: actionNode.retry!.count, seconds: Number($event) } })" />
+          @update:model-value="change(actionNode, { retry: { count: actionNode.retry!.count, seconds: clampNumber($event, actionNode.retry!.seconds, 1, 86400) } })" />
       </template>
     </template>
   </div>

@@ -13,7 +13,10 @@ export class HttpError extends Error {
   }
 }
 
-export async function fetchData(fetcher: Fetch, url: URL, init: RequestInit, signal: AbortSignal, detectJson = false) {
+export async function fetchData(
+  fetcher: Fetch, url: URL, init: RequestInit, signal: AbortSignal,
+  options?: { detectJson?: boolean; onStatus?: (status: number) => void }
+) {
   const timeout = AbortSignal.timeout(15000)
   let response: Response
   try {
@@ -22,6 +25,7 @@ export async function fetchData(fetcher: Fetch, url: URL, init: RequestInit, sig
     signal.throwIfAborted()
     throw new Error(timeout.aborted ? 'HTTP 请求超时' : 'HTTP 请求失败')
   }
+  options?.onStatus?.(response.status)
   if (!response.ok) {
     void response.body?.cancel().catch(() => {})
     throw new HttpError(response.status)
@@ -41,7 +45,7 @@ export async function fetchData(fetcher: Fetch, url: URL, init: RequestInit, sig
   const json = media === 'application/json' || media?.endsWith('+json')
   let body: unknown = raw
   if (!raw && (init.method === 'HEAD' || response.status === 204 || response.status === 205)) body = null
-  else if (json || detectJson) {
+  else if (json || options?.detectJson) {
     try { body = JSON.parse(raw) } catch {
       if (json) throw new Error('HTTP 响应不是有效的 JSON')
     }
@@ -54,7 +58,7 @@ type PollNode = Extract<FlowNode, { type: 'httpPoll' }>
 export async function pollHttp(node: PollNode, fetcher: Fetch, signal: AbortSignal) {
   const { status, body } = await fetchData(fetcher, parseHttpUrl(node.url), {
     method: 'GET', cache: 'no-store', headers: new Headers(node.headers.map(({ name, value }) => [name, value]))
-  }, signal, true)
+  }, signal, { detectJson: true })
   let value: unknown = body
   const path = node.jsonPath.trim()
   if (path && path !== '$') {

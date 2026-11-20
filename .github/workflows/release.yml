@@ -43,7 +43,8 @@ jobs:
 
           $notesFile = Join-Path $env:RUNNER_TEMP 'khooks-release-notes.md'
           Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8NoBOM
-      - run: vp run test
+      # 发版门禁只跑离线单测:public-ip.test.ts 探测 8 个外部站点,第三方故障不应阻塞发版(本地 vp run test 仍跑全量)。
+      - run: pnpm vitest run --exclude 'tests/public-ip.test.ts'
       - run: vp run build
       - run: vp run typecheck
       - run: vp run package:win
