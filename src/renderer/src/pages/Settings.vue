@@ -17,6 +17,10 @@ const testingAi = ref(false)
 const aiUrlError = ref('')
 const savingTheme = ref(false)
 const theme = computed(() => store.data?.settings.theme ?? 'light')
+const themeOptions = [
+  { label: '浅色', value: 'light' },
+  { label: '深色', value: 'dark' }
+]
 const hasAiKey = computed(() => store.data?.settings.hasAiKey)
 const update = computed(() => store.data?.update)
 const version = computed(() => store.data?.version)
@@ -78,14 +82,13 @@ async function testAi(): Promise<void> {
   }
 }
 
-async function changeTheme(event: Event): Promise<void> {
-  const select = event.target as HTMLSelectElement
+async function changeTheme(next: Theme): Promise<void> {
+  if (next === theme.value) return
   savingTheme.value = true
   try {
-    await desktop.setTheme(select.value as Theme)
+    await desktop.setTheme(next)
     await store.refresh()
   } catch (cause) {
-    select.value = theme.value
     toast.add({ title: errorMessage(cause), color: 'error' })
   } finally {
     savingTheme.value = false
@@ -121,17 +124,12 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
       <div class="section-title"><UIcon name="i-lucide-settings-2" /> 常规</div>
       <div class="section-row">
         <label for="launch-on-login">登录 Windows 后自动启动</label>
-        <input id="launch-on-login" type="checkbox" v-model="login" :disabled="update?.state === 'disabled'" />
+        <USwitch id="launch-on-login" v-model="login" :disabled="update?.state === 'disabled'" />
       </div>
-    </div>
-    <div class="surface settings-section">
-      <div class="section-title">外观</div>
       <div class="section-row">
         <label for="appearance">主题</label>
-        <select id="appearance" class="input-native appearance-select" :value="theme" :disabled="savingTheme" @change="changeTheme">
-          <option value="light">浅色</option>
-          <option value="dark">深色</option>
-        </select>
+        <USelect id="appearance" class="appearance-select" :model-value="theme" :items="themeOptions"
+          :disabled="savingTheme" @update:model-value="changeTheme($event as Theme)" />
       </div>
     </div>
     <div class="surface settings-section">

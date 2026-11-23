@@ -31,47 +31,48 @@ function stepLabel(step: RunStep): string {
 </script>
 
 <template>
-  <main v-if="run" class="editor">
-    <header class="editor-header">
-      <div class="editor-breadcrumb">
-        <RouterLink :to="{ name: 'runs', query: { flow: run.workflowId } }" class="back-link" aria-label="返回运行记录">
-          <UIcon name="i-lucide-arrow-left" />
-        </RouterLink>
-        <div><span class="muted">{{ dateTime(run.startedAt) }}</span><h1 class="run-title">{{ run.name }}</h1></div>
-        <span class="status" :class="{ online: run.status === 'success', danger: run.status === 'failed' }">{{ runLabels[run.status] }}</span>
-        <span v-if="run.source" class="muted">{{ sources[run.source] }}</span>
-      </div>
-    </header>
-    <div class="editor-grid run-grid">
+  <main v-if="run" class="editor run-detail">
+    <div class="editor-stage">
       <section class="canvas-panel">
-        <div class="panel-title"><UIcon name="i-lucide-route" /> 执行路径</div>
+        <div class="canvas-island canvas-island-left">
+          <RouterLink :to="{ name: 'runs', query: { flow: run.workflowId } }" class="back-link" aria-label="返回运行记录">
+            <UIcon name="i-lucide-arrow-left" />
+          </RouterLink>
+          <div class="run-meta">
+            <strong>{{ run.name }}</strong>
+            <small class="muted">{{ dateTime(run.startedAt) }}<template v-if="run.source"> · {{ sources[run.source] }}</template></small>
+          </div>
+          <span class="status" :class="{ online: run.status === 'success', danger: run.status === 'failed' }">{{ runLabels[run.status] }}</span>
+        </div>
         <FlowCanvas :key="run.id" v-model:selection="selection" :graph="run.workflow" :run="run" readonly />
       </section>
-      <aside class="inspector">
+      <aside class="inspector run-inspector">
         <div class="panel-title"><UIcon name="i-lucide-list-checks" /> 节点结果</div>
-        <div class="inspector-content">
-          <button v-for="step in run.steps" :key="step.nodeId" type="button" class="step-row" :class="{ chosen: selected === step.nodeId }"
-            @click="selected = step.nodeId">
-            <UIcon :name="step.error ? 'i-lucide-circle-x' : 'i-lucide-circle-check'" :class="step.error ? 'error-text' : 'success-text'" />
-            <span class="min-w-0 text-left wrap-anywhere">{{ stepLabel(step) }}</span>
-            <span v-if="step.attempts !== undefined" class="muted shrink-0">{{ step.attempts }} 次尝试</span>
-          </button>
-          <template v-if="result">
-            <dl v-if="result.startedAt || result.finishedAt" class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 text-sm">
-              <dt v-if="result.startedAt" class="muted">开始时间</dt>
-              <dd v-if="result.startedAt">{{ dateTime(result.startedAt) }}</dd>
-              <dt v-if="result.finishedAt" class="muted">结束时间</dt>
-              <dd v-if="result.finishedAt">{{ dateTime(result.finishedAt) }}</dd>
-            </dl>
-            <p v-if="result.error" class="error-text mt-3 whitespace-pre-wrap wrap-anywhere">{{ result.error }}</p>
-            <dl v-if="result.notification" class="mt-3 space-y-1 text-sm">
-              <dt class="muted">通知标题</dt>
-              <dd class="whitespace-pre-wrap wrap-anywhere">{{ result.notification.title }}</dd>
-              <dt class="muted">通知正文</dt>
-              <dd class="whitespace-pre-wrap wrap-anywhere">{{ result.notification.body }}</dd>
-            </dl>
-            <pre v-if="resultData !== undefined" class="result-code">{{ JSON.stringify(resultData, null, 2) }}</pre>
-          </template>
+        <div class="inspector-scroll">
+          <div class="inspector-content">
+            <button v-for="step in run.steps" :key="step.nodeId" type="button" class="step-row" :class="{ chosen: selected === step.nodeId }"
+              @click="selected = step.nodeId">
+              <UIcon :name="step.error ? 'i-lucide-circle-x' : 'i-lucide-circle-check'" :class="step.error ? 'error-text' : 'success-text'" />
+              <span class="min-w-0 text-left wrap-anywhere">{{ stepLabel(step) }}</span>
+              <span v-if="step.attempts !== undefined" class="muted shrink-0">{{ step.attempts }} 次尝试</span>
+            </button>
+            <template v-if="result">
+              <dl v-if="result.startedAt || result.finishedAt" class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 text-sm">
+                <dt v-if="result.startedAt" class="muted">开始时间</dt>
+                <dd v-if="result.startedAt">{{ dateTime(result.startedAt) }}</dd>
+                <dt v-if="result.finishedAt" class="muted">结束时间</dt>
+                <dd v-if="result.finishedAt">{{ dateTime(result.finishedAt) }}</dd>
+              </dl>
+              <p v-if="result.error" class="error-text mt-3 whitespace-pre-wrap wrap-anywhere">{{ result.error }}</p>
+              <dl v-if="result.notification" class="mt-3 space-y-1 text-sm">
+                <dt class="muted">通知标题</dt>
+                <dd class="whitespace-pre-wrap wrap-anywhere">{{ result.notification.title }}</dd>
+                <dt class="muted">通知正文</dt>
+                <dd class="whitespace-pre-wrap wrap-anywhere">{{ result.notification.body }}</dd>
+              </dl>
+              <pre v-if="resultData !== undefined" class="result-code">{{ JSON.stringify(resultData, null, 2) }}</pre>
+            </template>
+          </div>
         </div>
       </aside>
     </div>

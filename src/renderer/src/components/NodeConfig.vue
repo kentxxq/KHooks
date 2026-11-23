@@ -39,11 +39,41 @@ const clockMode = computed(() => props.node.type === 'interval' && props.node.cl
   ? props.node.clock.days ? 'weekly' : 'daily' : 'interval')
 const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
 const comparisons = [
-  { id: 'eq', label: '等于' }, { id: 'ne', label: '不等于' }, { id: 'gt', label: '大于' },
-  { id: 'gte', label: '大于等于' }, { id: 'lt', label: '小于' }, { id: 'lte', label: '小于等于' },
-  { id: 'exists', label: '存在' }, { id: 'contains', label: '包含' },
-  { id: 'startsWith', label: '开头是' }, { id: 'endsWith', label: '结尾是' }
-] as const
+  { value: 'eq', label: '等于' }, { value: 'ne', label: '不等于' }, { value: 'gt', label: '大于' },
+  { value: 'gte', label: '大于等于' }, { value: 'lt', label: '小于' }, { value: 'lte', label: '小于等于' },
+  { value: 'exists', label: '存在' }, { value: 'contains', label: '包含' },
+  { value: 'startsWith', label: '开头是' }, { value: 'endsWith', label: '结尾是' }
+]
+const scheduleModeOptions = [
+  { value: 'interval', label: '固定间隔' },
+  { value: 'daily', label: '每天' },
+  { value: 'weekly', label: '每周' }
+]
+const dataModeOptions = [
+  { value: 'json', label: 'JSON' },
+  { value: 'mapping', label: '字段映射' }
+]
+const conversionOptions = Object.entries(conversions).map(([value, label]) => ({ value, label }))
+const watchTargetOptions = [
+  { value: 'file', label: '单个文件' },
+  { value: 'directory', label: '目录' }
+]
+const formatOptions = [
+  { value: 'text', label: '文本' },
+  { value: 'json', label: 'JSON' }
+]
+const matchModeOptions = [
+  { value: 'all', label: '全部满足' },
+  { value: 'any', label: '任一满足' }
+]
+const methodOptions = methods.map((value) => ({ value, label: value }))
+
+function siteModeOptions(config: SiteConfig): { value: SiteConfig['mode']; label: string }[] {
+  const options: { value: SiteConfig['mode']; label: string }[] = []
+  if ('text' in sites[config.id]) options.push({ value: 'text', label: '纯文本' })
+  if ('json' in sites[config.id] || config.mode === 'json') options.push({ value: 'json', label: 'JSON' })
+  return options
+}
 
 function change<N extends FlowNode>(node: N, patch: Partial<N>): void {
   emit('change', { ...node, ...patch })
@@ -172,22 +202,17 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
   <div class="fields">
     <template v-if="node.type === 'interval'">
       <label for="schedule-mode">定时模式</label>
-      <select id="schedule-mode" class="input-native" :value="clockMode" :disabled="readonly"
-        @change="setClock(($event.target as HTMLSelectElement).value)">
-        <option value="interval">固定间隔</option>
-        <option value="daily">每天</option>
-        <option value="weekly">每周</option>
-      </select>
+      <USelect id="schedule-mode" class="full-width" :model-value="clockMode" :items="scheduleModeOptions" :disabled="readonly"
+        @update:model-value="setClock(String($event))" />
       <template v-if="node.clock">
         <label for="clock-time">执行时间</label>
         <UInput id="clock-time" type="time" :model-value="node.clock.time" :disabled="readonly"
           @update:model-value="change(node, { clock: { ...node.clock, time: String($event) || node.clock.time } })" />
-        <div v-if="node.clock.days" class="field-group">
-          <label v-for="(day, index) in weekdays" :key="day" class="check-row">
-            <input type="checkbox" :checked="node.clock.days.includes(index)"
-              :disabled="readonly || (node.clock.days.length === 1 && node.clock.days.includes(index))"
-              @change="selectDay(index, ($event.target as HTMLInputElement).checked)" />{{ day }}
-          </label>
+        <div v-if="node.clock.days" class="field-group check-list">
+          <UCheckbox v-for="(day, index) in weekdays" :key="day" :label="day"
+            :model-value="node.clock.days.includes(index)"
+            :disabled="readonly || (node.clock.days.length === 1 && node.clock.days.includes(index))"
+            @update:model-value="selectDay(index, Boolean($event))" />
         </div>
       </template>
     </template>
@@ -204,11 +229,8 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
     </template>
     <template v-if="node.type === 'data'">
       <label for="data-mode">数据模式</label>
-      <select id="data-mode" class="input-native" :value="node.mapping ? 'mapping' : 'json'" :disabled="readonly"
-        @change="change(node, { mapping: ($event.target as HTMLSelectElement).value === 'mapping' ? [] : undefined })">
-        <option value="json">JSON</option>
-        <option value="mapping">字段映射</option>
-      </select>
+      <USelect id="data-mode" class="full-width" :model-value="node.mapping ? 'mapping' : 'json'" :items="dataModeOptions"
+        :disabled="readonly" @update:model-value="change(node, { mapping: $event === 'mapping' ? [] : undefined })" />
       <template v-if="node.mapping">
         <div v-for="(field, index) in node.mapping" :key="index" class="site-config">
           <UInput :aria-label="'字段名称 ' + (index + 1)" :model-value="field.key" :maxlength="200" :disabled="readonly"
@@ -216,10 +238,8 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
           <VariableInput :id="'mapping-value-' + index" :label="'字段值 ' + (index + 1)" :fields="variableFields"
             :model-value="field.value" :maxlength="32000" :readonly="readonly"
             @update:model-value="updateMapping(index, { value: $event })" />
-          <select class="input-native" :aria-label="'字段类型 ' + (index + 1)" :value="field.convert" :disabled="readonly"
-            @change="updateMapping(index, { convert: ($event.target as HTMLSelectElement).value as keyof typeof conversions })">
-            <option v-for="(label, key) in conversions" :key="key" :value="key">{{ label }}</option>
-          </select>
+          <USelect class="full-width" :aria-label="'字段类型 ' + (index + 1)" :model-value="field.convert" :items="conversionOptions"
+            :disabled="readonly" @update:model-value="updateMapping(index, { convert: $event as keyof typeof conversions })" />
           <UButton v-if="!readonly" variant="ghost" size="xs" color="neutral" @click="change(node, { mapping: node.mapping?.filter((_, i) => i !== index) })">删除字段</UButton>
         </div>
         <UButton v-if="!readonly" variant="outline" size="xs" color="neutral" :disabled="node.mapping.length >= 50"
@@ -240,13 +260,11 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
     </template>
 
     <template v-if="node.type === 'ip'">
-      <div class="field-group">
+      <div class="field-group check-list">
         <h3>查询站点</h3>
-        <label v-for="id in siteId.options" :key="id" class="check-row">
-          <input type="checkbox" :checked="node.sites.some(site => site.id === id)" :disabled="readonly"
-            @change="toggleSite(id, ($event.target as HTMLInputElement).checked)" />
-          {{ sites[id].name }}
-        </label>
+        <UCheckbox v-for="id in siteId.options" :key="id" :label="sites[id].name"
+          :model-value="node.sites.some(site => site.id === id)" :disabled="readonly"
+          @update:model-value="toggleSite(id, Boolean($event))" />
       </div>
       <div v-for="config in node.sites" :key="config.id" class="site-config">
         <div class="site-title"><strong>{{ sites[config.id].name }}</strong>
@@ -254,15 +272,12 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
             :aria-label="'测试 ' + sites[config.id].name" @click="test(config)">测试</UButton>
         </div>
         <label :for="'mode-' + config.id">响应格式</label>
-        <select :id="'mode-' + config.id" class="input-native" :value="config.mode"
+        <USelect :id="'mode-' + config.id" class="full-width" :model-value="config.mode" :items="siteModeOptions(config)"
           :disabled="readonly || !('text' in sites[config.id]) || (config.mode === 'text' && !('json' in sites[config.id]))"
-          @change="changeSite(config, {
-            mode: ($event.target as HTMLSelectElement).value as SiteConfig['mode'],
+          @update:model-value="changeSite(config, {
+            mode: $event as SiteConfig['mode'],
             path: config.path || createSiteConfig(config.id, 'json').path
-          })">
-          <option v-if="'text' in sites[config.id]" value="text">纯文本</option>
-          <option v-if="'json' in sites[config.id] || config.mode === 'json'" value="json">JSON</option>
-        </select>
+          })" />
         <template v-if="config.mode === 'json'">
           <label :for="'path-' + config.id">JSONPath</label>
           <UInput :id="'path-' + config.id" :model-value="config.path" :maxlength="200" :disabled="readonly"
@@ -275,11 +290,8 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
 
     <template v-if="node.type === 'fileWatch'">
       <label for="watch-target">监听类型</label>
-      <select id="watch-target" class="input-native" :value="node.target" :disabled="readonly"
-        @change="change(node, { target: ($event.target as HTMLSelectElement).value as typeof node.target, path: '' })">
-        <option value="file">单个文件</option>
-        <option value="directory">目录</option>
-      </select>
+      <USelect id="watch-target" class="full-width" :model-value="node.target" :items="watchTargetOptions" :disabled="readonly"
+        @update:model-value="change(node, { target: $event as typeof node.target, path: '' })" />
     </template>
     <template v-if="node.type === 'fileWatch' || node.type === 'fileRead' || node.type === 'fileWrite'">
       <label for="local-path">路径</label>
@@ -292,24 +304,23 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
       </div>
     </template>
     <template v-if="node.type === 'fileWatch'">
-      <label v-for="(label, event) in fileEvents" :key="event" class="check-row">
-        <input type="checkbox" :checked="node.events.includes(event)" :disabled="readonly"
-          @change="selectFileEvent(event, ($event.target as HTMLInputElement).checked)" />{{ label }}
-      </label>
+      <div class="check-list">
+        <UCheckbox v-for="(label, event) in fileEvents" :key="event" :label="label"
+          :model-value="node.events.includes(event)" :disabled="readonly"
+          @update:model-value="selectFileEvent(event, Boolean($event))" />
+      </div>
     </template>
     <template v-if="node.type === 'system'">
-      <label v-for="(label, event) in systemEvents" :key="event" class="check-row">
-        <input type="checkbox" :checked="node.events.includes(event)" :disabled="readonly"
-          @change="selectSystemEvent(event, ($event.target as HTMLInputElement).checked)" />{{ label }}
-      </label>
+      <div class="check-list">
+        <UCheckbox v-for="(label, event) in systemEvents" :key="event" :label="label"
+          :model-value="node.events.includes(event)" :disabled="readonly"
+          @update:model-value="selectSystemEvent(event, Boolean($event))" />
+      </div>
     </template>
     <template v-if="node.type === 'fileRead' || node.type === 'fileWrite' || node.type === 'llm'">
       <label for="content-format">{{ node.type === 'llm' ? '输出格式' : '文件格式' }}</label>
-      <select id="content-format" class="input-native" :value="node.format" :disabled="readonly"
-        @change="change(node, { format: ($event.target as HTMLSelectElement).value as typeof node.format })">
-        <option value="text">文本</option>
-        <option value="json">JSON</option>
-      </select>
+      <USelect id="content-format" class="full-width" :model-value="node.format" :items="formatOptions" :disabled="readonly"
+        @update:model-value="change(node, { format: $event as typeof node.format })" />
     </template>
     <template v-if="node.type === 'fileWrite'">
       <label for="file-content">写入内容</label>
@@ -327,21 +338,16 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
     <template v-if="node.type === 'condition'">
       <template v-if="node.group">
         <label for="condition-match">匹配方式</label>
-        <select id="condition-match" class="input-native" :value="node.group.match" :disabled="readonly"
-          @change="setRules(conditionRules, ($event.target as HTMLSelectElement).value as 'all' | 'any')">
-          <option value="all">全部满足</option>
-          <option value="any">任一满足</option>
-        </select>
+        <USelect id="condition-match" class="full-width" :model-value="node.group.match" :items="matchModeOptions" :disabled="readonly"
+          @update:model-value="setRules(conditionRules, $event as 'all' | 'any')" />
       </template>
       <div v-for="(rule, index) in conditionRules" :key="index" class="site-config">
       <label :for="'condition-field-' + index">上游字段</label>
       <VariableInput :id="'condition-field-' + index" label="上游字段" :model-value="rule.field" :maxlength="300"
         :fields="variableFields" :readonly="readonly" field-path @update:model-value="updateRule(index, { field: $event })" />
       <label :for="'operator-' + index">运算符</label>
-      <select :id="'operator-' + index" class="input-native" :value="rule.operator" :disabled="readonly"
-        @change="updateRule(index, { operator: ($event.target as HTMLSelectElement).value as Rule['operator'] })">
-        <option v-for="item in comparisons" :key="item.id" :value="item.id">{{ item.label }}</option>
-      </select>
+      <USelect :id="'operator-' + index" class="full-width" :model-value="rule.operator" :items="comparisons" :disabled="readonly"
+        @update:model-value="updateRule(index, { operator: $event as Rule['operator'] })" />
       <template v-if="rule.operator !== 'exists'">
         <label :for="'compare-value-' + index">比较值</label>
         <UInput :id="'compare-value-' + index" :model-value="rule.value" :maxlength="2000" class="full-width" :disabled="readonly"
@@ -357,10 +363,8 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
     <template v-if="node.type === 'http' || node.type === 'httpPoll'">
       <template v-if="node.type === 'http'">
       <label for="http-method">请求方法</label>
-      <select id="http-method" class="input-native" :value="node.method" :disabled="readonly"
-        @change="change(node, { method: ($event.target as HTMLSelectElement).value as typeof node.method })">
-        <option v-for="method in methods" :key="method" :value="method">{{ method }}</option>
-      </select>
+      <USelect id="http-method" class="full-width" :model-value="node.method" :items="methodOptions" :disabled="readonly"
+        @update:model-value="change(node, { method: $event as typeof node.method })" />
       </template>
       <label for="http-url">请求地址</label>
       <UInput v-if="node.type === 'httpPoll'" id="http-url" :model-value="node.url" :maxlength="4000" class="full-width" :disabled="readonly"
@@ -394,11 +398,11 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
       </div>
     </template>
     <template v-if="actionNode">
-      <label class="check-row">
-        <input type="checkbox" :checked="Boolean(actionNode.retry)" :disabled="readonly"
-          @change="change(actionNode, { retry: ($event.target as HTMLInputElement).checked ? { count: 1, seconds: 1 } : undefined })" />
-        失败后重试
-      </label>
+      <div class="section-row field-group">
+        <label for="retry-toggle">失败后重试</label>
+        <USwitch id="retry-toggle" :model-value="Boolean(actionNode.retry)" :disabled="readonly"
+          @update:model-value="change(actionNode, { retry: $event ? { count: 1, seconds: 1 } : undefined })" />
+      </div>
       <template v-if="actionNode.retry">
         <label for="retry-count">重试次数</label>
         <UInput id="retry-count" type="number" :min="1" :max="3" :model-value="actionNode.retry.count" :disabled="readonly"

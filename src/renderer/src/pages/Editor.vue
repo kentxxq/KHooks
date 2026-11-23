@@ -65,7 +65,11 @@ watch(saved, (current, previous) => {
   }
 }, { immediate: true })
 
-onBeforeRouteLeave(() => !dirty.value || window.confirm('有未保存的修改，确定离开？'))
+onBeforeRouteLeave(async () => !dirty.value || await askConfirm({
+  title: '未保存的修改',
+  description: '当前流程有未保存的修改，离开后修改将丢失，确定离开？',
+  confirmLabel: '离开'
+}))
 
 function select(id: string): void {
   previewType.value = undefined
@@ -206,7 +210,12 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
 
 async function reloadWorkflow(): Promise<void> {
   const id = draft.value?.id
-  if (!id || busy.value || (dirty.value && !window.confirm('放弃未保存的修改并重新加载？'))) return
+  if (!id || busy.value) return
+  if (dirty.value && !await askConfirm({
+    title: '放弃未保存的修改',
+    description: '重新加载将放弃当前未保存的修改，确定继续？',
+    confirmLabel: '重新加载'
+  })) return
   pending.value = 'reload'
   try {
     const current = await desktop.getWorkflow(id)
@@ -246,128 +255,212 @@ async function reviseWorkflow(): Promise<void> {
     pending.value = undefined
   }
 }
+
+const busyPolicyOptions = Object.entries(busyPolicies).map(([value, label]) => ({ value, label }))
+const nodeSearch = ref('')
+const moreOpen = ref(false)
+const sampleDrawerOpen = ref(false)
+const inspectorDismissed = ref(false)
+const confirmDialog = ref<{ title: string; description: string; confirmLabel: string; resolve: (ok: boolean) => void }>()
+const hasInspectorTarget = computed(() => Boolean(preview.value || node.value || selection.value.nodes.length > 1 || selection.value.edges.length))
+const showInspector = computed(() => !inspectorDismissed.value && (hasInspectorTarget.value || sampleDrawerOpen.value))
+const filteredLibraryGroups = computed(() => {
+  const q = nodeSearch.value.trim().toLowerCase()
+  if (!q) return libraryGroups
+  return libraryGroups
+    .map((group) => ({ ...group, types: group.types.filter((t) => nodeNames[t].toLowerCase().includes(q) || t.toLowerCase().includes(q)) }))
+    .filter((group) => group.types.length > 0)
+})
+const filteredComponents = computed(() => {
+  const list = store.data?.components ?? []
+  const q = nodeSearch.value.trim().toLowerCase()
+  if (!q) return list
+  return list.filter((c) => c.name.toLowerCase().includes(q) || nodeNames[c.config.type].toLowerCase().includes(q))
+})
+
+watch([() => selection.value.nodes.join(','), () => selection.value.edges.join(','), previewType], () => {
+  if (hasInspectorTarget.value) {
+    inspectorDismissed.value = false
+    sampleDrawerOpen.value = false
+  }
+})
+
+function askConfirm(options: { title: string; description: string; confirmLabel: string }): Promise<boolean> {
+  return new Promise((resolve) => {
+    confirmDialog.value = { ...options, resolve }
+  })
+}
+
+function resolveConfirm(ok: boolean): void {
+  const current = confirmDialog.value
+  if (!current) return
+  confirmDialog.value = undefined
+  current.resolve(ok)
+}
+
+function toggleSampleDrawer(): void {
+  const next = !(sampleDrawerOpen.value && !inspectorDismissed.value)
+  sampleDrawerOpen.value = next
+  inspectorDismissed.value = !next
+}
+
+function closeInspector(): void {
+  inspectorDismissed.value = true
+  sampleDrawerOpen.value = false
+  previewType.value = undefined
+  select('')
+}
 </script>
 
 <template>
   <main v-if="draft" class="editor">
-    <header class="editor-header">
-      <div class="editor-breadcrumb">
-        <RouterLink to="/" class="back-link" aria-label="返回流程"><UIcon name="i-lucide-arrow-left" /></RouterLink>
-        <div class="editor-name">
-          <label for="flow-name">流程名称</label>
-          <input id="flow-name" v-model="draft.name" :disabled="busy" maxlength="100"
-            :aria-invalid="Boolean(nameError)" :aria-describedby="nameError ? 'flow-name-error' : undefined"
-            @input="nameError = ''" />
-          <p v-if="nameError" id="flow-name-error" class="field-error" role="alert">{{ nameError }}</p>
-        </div>
-        <span v-if="dirty" class="muted unsaved">未保存</span>
-        <select class="input-native" aria-label="流程忙碌策略" :value="draft.busyPolicy ?? 'skip'" :disabled="busy"
-          @change="draft.busyPolicy = ($event.target as HTMLSelectElement).value as Workflow['busyPolicy']">
-          <option v-for="(label, policy) in busyPolicies" :key="policy" :value="policy">{{ label }}</option>
-        </select>
-      </div>
-      <div class="actions">
-        <UButton color="neutral" variant="outline" icon="i-lucide-sparkles" :disabled="busy"
-          @click="aiOpen = true">AI 修改</UButton>
-        <UButton color="neutral" variant="outline" icon="i-lucide-play" :disabled="busy || !canRun"
-          :loading="pending === 'run'" @click="perform('run')">手动运行</UButton>
-        <UButton color="neutral" variant="outline" icon="i-lucide-history" :to="{ name: 'runs', query: { flow: draft.id } }">运行记录</UButton>
-        <UButton color="neutral" variant="outline" icon="i-lucide-save"
-          :disabled="busy || !dirty" @click="perform('save')">保存</UButton>
-        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :disabled="busy"
-          :loading="pending === 'reload'" @click="reloadWorkflow">重新加载</UButton>
-        <UButton :color="draft.enabled ? 'neutral' : 'primary'" :icon="draft.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
-          :disabled="busy" @click="perform(draft.enabled ? 'disable' : 'enable')">{{ draft.enabled ? '停用' : '启用' }}</UButton>
-      </div>
-    </header>
-    <div class="editor-grid">
+    <div class="editor-stage">
+      <!-- 左侧固定节点面板 -->
       <aside class="library">
-        <div class="panel-title"><UIcon name="i-lucide-boxes" /> 节点</div>
-        <div v-for="group in libraryGroups" :key="group.label" class="library-group">
-          <h3>{{ group.label }}</h3>
-          <div v-for="kind in group.types" :key="kind" class="library-item" :class="{ chosen: previewType === kind }">
-            <button type="button" class="library-preview" :draggable="canAdd(kind)" :aria-pressed="previewType === kind"
-              @click="inspect(kind)" @dragstart="startDrag($event, kind)" @dragend="draggedType = undefined">
-              <span class="node-icon" :class="kind"><UIcon :name="nodeIcons[kind]" mode="svg" /></span>{{ nodeNames[kind] }}
-            </button>
-            <UButton class="library-add" color="neutral" variant="ghost" size="xs" icon="i-lucide-plus"
-              :aria-label="'添加' + nodeNames[kind]" :disabled="!canAdd(kind)"
-              @click="addNode(kind)" />
-          </div>
+        <div class="library-search">
+          <UInput v-model="nodeSearch" size="sm" icon="i-lucide-search" placeholder="搜索节点..." class="full-width" />
         </div>
-        <div v-if="store.data?.components.length" class="library-group">
-          <h3>组件</h3>
-          <div v-for="component in store.data.components" :key="component.id" class="library-item">
-            <div class="library-component">
-              <span class="node-icon" :class="component.config.type"><UIcon :name="nodeIcons[component.config.type]" mode="svg" /></span>
-              <span class="node-titles">
-                <span :title="component.name">{{ component.name }}</span>
-                <small>{{ nodeNames[component.config.type] }}</small>
-              </span>
+        <div class="library-scroll">
+          <div v-for="group in filteredLibraryGroups" :key="group.label" class="library-group">
+            <h3>{{ group.label }}</h3>
+            <div v-for="kind in group.types" :key="kind" class="library-item" :class="{ chosen: previewType === kind }">
+              <button type="button" class="library-preview" :draggable="canAdd(kind)" :aria-pressed="previewType === kind"
+                @click="inspect(kind)" @dragstart="startDrag($event, kind)" @dragend="draggedType = undefined">
+                <span class="node-icon" :class="kind"><UIcon :name="nodeIcons[kind]" mode="svg" /></span>{{ nodeNames[kind] }}
+              </button>
+              <UButton class="library-add" color="neutral" variant="ghost" size="xs" icon="i-lucide-plus"
+                :aria-label="'添加' + nodeNames[kind]" :disabled="!canAdd(kind)"
+                @click="addNode(kind)" />
             </div>
-            <UButton class="library-add" color="neutral" variant="ghost" size="xs" icon="i-lucide-plus"
-              :aria-label="'添加组件 ' + component.name" :disabled="!canAdd(component.config.type)" @click="addNode(component)" />
+          </div>
+          <div v-if="filteredComponents.length" class="library-group">
+            <h3>组件</h3>
+            <div v-for="component in filteredComponents" :key="component.id" class="library-item">
+              <div class="library-component">
+                <span class="node-icon" :class="component.config.type"><UIcon :name="nodeIcons[component.config.type]" mode="svg" /></span>
+                <span class="node-titles">
+                  <span :title="component.name">{{ component.name }}</span>
+                  <small>{{ nodeNames[component.config.type] }}</small>
+                </span>
+              </div>
+              <UButton class="library-add" color="neutral" variant="ghost" size="xs" icon="i-lucide-plus"
+                :aria-label="'添加组件 ' + component.name" :disabled="!canAdd(component.config.type)" @click="addNode(component)" />
+            </div>
           </div>
         </div>
       </aside>
+
+      <!-- 画布主舞台 -->
       <section class="canvas-panel">
-        <div class="panel-title canvas-heading">
-          <span><UIcon name="i-lucide-workflow" /> 流程画布</span>
-          <div class="actions">
-            <span class="muted">{{ draft.nodes.length }} 个节点 · {{ draft.edges.length }} 条连线</span>
-            <UButton v-if="selection.nodes.length > 1" color="error" variant="soft" size="xs"
-              icon="i-lucide-trash-2" :disabled="busy" @click="removeSelection()">删除所选（{{ selection.nodes.length }}）</UButton>
+        <!-- 左上悬浮胶囊 -->
+        <div class="canvas-island canvas-island-left">
+          <RouterLink to="/" class="back-link" aria-label="返回流程"><UIcon name="i-lucide-arrow-left" /></RouterLink>
+          <div class="editor-name">
+            <UInput id="flow-name" v-model="draft.name" variant="none" size="sm" :disabled="busy" :maxlength="100"
+              aria-label="流程名称" :aria-invalid="Boolean(nameError)" :aria-describedby="nameError ? 'flow-name-error' : undefined"
+              @update:model-value="nameError = ''" />
+            <p v-if="nameError" id="flow-name-error" class="field-error" role="alert">{{ nameError }}</p>
           </div>
+          <span v-if="dirty" class="dirty-pill" title="有未保存修改">未保存</span>
+          <span class="canvas-stat muted">{{ draft.nodes.length }} 节点 · {{ draft.edges.length }} 连线</span>
         </div>
+
+        <!-- 右上悬浮胶囊 -->
+        <div class="canvas-island canvas-island-right">
+          <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-sparkles" :disabled="busy"
+            @click="aiOpen = true">AI 修改</UButton>
+          <UButton v-if="sample" :color="sampleDrawerOpen && !inspectorDismissed ? 'primary' : 'neutral'"
+            :variant="sampleDrawerOpen && !inspectorDismissed ? 'soft' : 'ghost'"
+            size="sm" icon="i-lucide-history" aria-label="最近一次检测" title="最近一次检测"
+            @click="toggleSampleDrawer" />
+          <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-play" :disabled="busy || !canRun"
+            :loading="pending === 'run'" @click="perform('run')">运行</UButton>
+          <UButton :color="dirty ? 'primary' : 'neutral'" :variant="dirty ? 'soft' : 'outline'" size="sm" icon="i-lucide-save"
+            :disabled="busy || !dirty" @click="perform('save')">保存</UButton>
+          <UButton :color="draft.enabled ? 'neutral' : 'primary'" size="sm"
+            :icon="draft.enabled ? 'i-lucide-pause' : 'i-lucide-power'" :disabled="busy"
+            @click="perform(draft.enabled ? 'disable' : 'enable')">{{ draft.enabled ? '停用' : '启用' }}</UButton>
+          <UPopover v-model:open="moreOpen" :content="{ align: 'end', sideOffset: 8 }">
+            <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-sliders-horizontal" aria-label="流程选项" />
+            <template #content>
+              <div class="more-popover">
+                <div class="more-field">
+                  <label>流程忙碌策略</label>
+                  <USelect class="full-width" size="sm" aria-label="流程忙碌策略"
+                    :model-value="draft.busyPolicy ?? 'skip'" :items="busyPolicyOptions" :disabled="busy"
+                    @update:model-value="draft.busyPolicy = $event as Workflow['busyPolicy']" />
+                </div>
+                <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-history" class="full-width justify-start"
+                  :to="{ name: 'runs', query: { flow: draft.id } }" @click="moreOpen = false">运行记录</UButton>
+                <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-refresh-cw" class="full-width justify-start"
+                  :disabled="busy" :loading="pending === 'reload'" @click="moreOpen = false; reloadWorkflow()">重新加载</UButton>
+              </div>
+            </template>
+          </UPopover>
+        </div>
+
+        <div v-if="selection.nodes.length > 1" class="canvas-selection-bar">
+          <UButton color="error" variant="soft" size="xs" icon="i-lucide-trash-2" :disabled="busy"
+            @click="removeSelection()">删除所选（{{ selection.nodes.length }}）</UButton>
+        </div>
+
         <FlowCanvas :key="draft.id" :selection="selection" :graph="draft" :readonly="busy" :dragged-type="draggedType"
           :allow-save-component="!busy" @update:selection="updateSelection" @connect="connect" @move="move" @drop-node="addNode"
-          @pane-click="previewType = undefined" @remove-selection="removeSelection" @save-component="openComponentDialog" />
+          @pane-click="previewType = undefined; sampleDrawerOpen = false" @remove-selection="removeSelection" @save-component="openComponentDialog" />
       </section>
-      <aside class="inspector">
-        <div class="panel-title"><UIcon name="i-lucide-sliders-horizontal" /> 节点配置</div>
-        <div v-if="preview" class="inspector-content">
-          <div class="section-row">
-            <h2><span class="node-icon" :class="preview.type"><UIcon :name="nodeIcons[preview.type]" mode="svg" /></span>{{ nodeNames[preview.type] }}</h2>
-            <span class="muted">预览</span>
-          </div>
-          <p v-if="nodeUses[preview.type]" class="node-use">{{ nodeUses[preview.type] }}</p>
-          <NodeConfig :key="preview.type" :node="preview" :graph="draft" readonly />
+
+      <!-- 右侧配置侧栏（与左侧节点侧栏统一风格） -->
+      <aside v-if="showInspector" class="inspector">
+        <div class="panel-title">
+          <UIcon name="i-lucide-sliders-horizontal" />
+          <span>{{ sampleDrawerOpen && !hasInspectorTarget ? '最近一次检测' : '节点配置' }}</span>
+          <UButton class="ml-auto" color="neutral" variant="ghost" size="xs" icon="i-lucide-x"
+            aria-label="关闭配置面板" @click="closeInspector" />
         </div>
-        <div v-else-if="node" class="inspector-content">
-          <div class="section-row">
-            <h2><span class="node-icon" :class="node.type"><UIcon :name="nodeIcons[node.type]" mode="svg" /></span>{{ nodeNames[node.type] }}</h2>
-            <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除节点"
-              :disabled="busy" @click="removeSelection()" />
+        <div class="inspector-scroll">
+          <div v-if="preview" class="inspector-content">
+            <div class="section-row">
+              <h2><span class="node-icon" :class="preview.type"><UIcon :name="nodeIcons[preview.type]" mode="svg" /></span>{{ nodeNames[preview.type] }}</h2>
+              <span class="muted">预览</span>
+            </div>
+            <p v-if="nodeUses[preview.type]" class="node-use">{{ nodeUses[preview.type] }}</p>
+            <NodeConfig :key="preview.type" :node="preview" :graph="draft" readonly />
           </div>
-          <div class="fields node-name-field">
-            <label for="node-name">节点名称</label>
-            <UInput id="node-name" :model-value="node.name ?? ''" :maxlength="100" :disabled="busy"
-              class="full-width" @update:model-value="changeNode({ ...node, name: String($event) || undefined })" />
+          <div v-else-if="node" class="inspector-content">
+            <div class="section-row">
+              <h2><span class="node-icon" :class="node.type"><UIcon :name="nodeIcons[node.type]" mode="svg" /></span>{{ nodeNames[node.type] }}</h2>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除节点"
+                :disabled="busy" @click="removeSelection()" />
+            </div>
+            <div class="fields node-name-field">
+              <label for="node-name">节点名称</label>
+              <UInput id="node-name" :model-value="node.name ?? ''" :maxlength="100" :disabled="busy"
+                class="full-width" @update:model-value="changeNode({ ...node, name: String($event) || undefined })" />
+            </div>
+            <NodeConfig :key="node.id" :node="node" :graph="draft" :readonly="busy" @change="changeNode" />
           </div>
-          <NodeConfig :key="node.id" :node="node" :graph="draft" :readonly="busy" @change="changeNode" />
-        </div>
-        <div v-else-if="selection.nodes.length > 1" class="inspector-content">
-          <h2>已选中 {{ selection.nodes.length }} 个节点</h2>
-        </div>
-        <div v-else-if="selection.edges.length" class="inspector-content">
-          <div class="section-row"><h2>{{ selection.edges.length === 1 ? '连线' : '已选中 ' + selection.edges.length + ' 条连线' }}</h2>
-            <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除连线"
-              :disabled="busy" @click="removeSelection()" />
+          <div v-else-if="selection.nodes.length > 1" class="inspector-content">
+            <h2>已选中 {{ selection.nodes.length }} 个节点</h2>
           </div>
-        </div>
-        <div v-else class="inspector-content muted">选择画布中的节点</div>
-        <div v-if="sample" class="inspector-content sample" data-testid="latest-ip">
-          <div class="section-row"><h2>最近一次检测</h2><span class="muted">{{ dateTime(sample.checkedAt) }}</span></div>
-          <dl class="sample-metrics">
-            <div><dt>现在的 IP</dt><dd>{{ sample.winnerIp ?? '未确定' }}</dd></div>
-            <div><dt>之前的 IP</dt><dd>{{ sample.previousIp ?? '—' }}</dd></div>
-            <div><dt>不同 IP 数量</dt><dd>{{ sample.distinctIpCount }}</dd></div>
-          </dl>
-          <div v-for="result in sample.results" :key="result.id" class="sample-row">
-            <span>{{ sites[result.id].name }}</span>
-            <code v-if="result.ip">{{ result.ip }}</code>
-            <button v-else type="button" class="error-text" :aria-label="'查看 ' + sites[result.id].name + ' 的错误'"
-              @click="toast.add({ title: result.error, color: 'error' })">查看错误</button>
+          <div v-else-if="selection.edges.length" class="inspector-content">
+            <div class="section-row"><h2>{{ selection.edges.length === 1 ? '连线' : '已选中 ' + selection.edges.length + ' 条连线' }}</h2>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除连线"
+                :disabled="busy" @click="removeSelection()" />
+            </div>
+          </div>
+          <div v-if="sample" class="inspector-content sample" data-testid="latest-ip">
+            <div class="section-row"><h2>最近一次检测</h2><span class="muted">{{ dateTime(sample.checkedAt) }}</span></div>
+            <dl class="sample-metrics">
+              <div><dt>现在的 IP</dt><dd>{{ sample.winnerIp ?? '未确定' }}</dd></div>
+              <div><dt>之前的 IP</dt><dd>{{ sample.previousIp ?? '—' }}</dd></div>
+              <div><dt>不同 IP 数量</dt><dd>{{ sample.distinctIpCount }}</dd></div>
+            </dl>
+            <div v-for="result in sample.results" :key="result.id" class="sample-row">
+              <span>{{ sites[result.id].name }}</span>
+              <code v-if="result.ip">{{ result.ip }}</code>
+              <button v-else type="button" class="error-text" :aria-label="'查看 ' + sites[result.id].name + ' 的错误'"
+                @click="toast.add({ title: result.error, color: 'error' })">查看错误</button>
+            </div>
           </div>
         </div>
       </aside>
@@ -400,6 +493,13 @@ async function reviseWorkflow(): Promise<void> {
         <UButton color="neutral" variant="outline" :disabled="busy" @click="closeComponentDialog">取消</UButton>
         <UButton type="submit" form="component-form" :disabled="!componentDraft?.name.trim() || busy"
           :loading="pending === 'component'">保存组件</UButton>
+      </template>
+    </UModal>
+    <UModal :open="Boolean(confirmDialog)" :title="confirmDialog?.title" :description="confirmDialog?.description"
+      @update:open="!$event && resolveConfirm(false)">
+      <template #footer>
+        <UButton color="neutral" variant="outline" @click="resolveConfirm(false)">取消</UButton>
+        <UButton color="error" @click="resolveConfirm(true)">{{ confirmDialog?.confirmLabel }}</UButton>
       </template>
     </UModal>
   </main>

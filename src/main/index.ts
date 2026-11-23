@@ -38,6 +38,11 @@ if (windows) {
 }
 
 const windowBackground: Record<Theme, string> = { light: '#ffffff', dark: '#0f172a' }
+const titleBarOverlay = (theme: Theme) => ({
+  color: '#00000000',
+  symbolColor: theme === 'dark' ? '#e2e8f0' : '#334155',
+  height: 51
+})
 
 let window: BrowserWindow | undefined
 let tray: Tray | undefined
@@ -133,6 +138,8 @@ function createWindow(show: boolean): void {
     title: appTitle,
     width: 1440, height: 900, minWidth: 980, minHeight: 660,
     show: false, backgroundColor: windowBackground[store.state.theme], icon: iconPath,
+    titleBarStyle: 'hidden',
+    ...(windows ? { titleBarOverlay: titleBarOverlay(store.state.theme) } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true, sandbox: true, nodeIntegration: false
@@ -263,6 +270,7 @@ function registerIpc(): void {
     await store.change((state) => { state.theme = theme })
     nativeTheme.themeSource = store.state.theme
     window?.setBackgroundColor(windowBackground[store.state.theme])
+    if (windows) window?.setTitleBarOverlay(titleBarOverlay(store.state.theme))
   })
   bind('testAi', async (input) => {
     const { aiUrl, aiModel, aiKey } = aiInput.parse(input)

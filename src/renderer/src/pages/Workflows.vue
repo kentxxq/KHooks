@@ -115,6 +115,14 @@ async function confirmCopy(): Promise<void> {
     action.value = undefined
   }
 }
+
+const flowSearch = ref('')
+const displayedWorkflows = computed(() => {
+  const list = store.data?.workflows ?? []
+  const q = flowSearch.value.trim().toLowerCase()
+  if (!q) return list
+  return list.filter((flow) => flow.name.toLowerCase().includes(q))
+})
 </script>
 
 <template>
@@ -122,6 +130,8 @@ async function confirmCopy(): Promise<void> {
     <div class="page-heading">
       <div><h1>流程</h1><p class="muted">{{ store.data?.workflows.length ?? 0 }} 条流程</p></div>
       <div class="actions">
+        <UInput v-if="store.data?.workflows.length" v-model="flowSearch"
+          size="sm" icon="i-lucide-search" placeholder="筛选流程..." class="flow-search-input" />
         <UButton color="neutral" variant="outline" icon="i-lucide-sparkles" :disabled="pending" @click="aiOpen = !aiOpen">AI 生成</UButton>
         <UButton icon="i-lucide-plus" :loading="action === 'new'" :disabled="pending" @click="create()">新建流程</UButton>
       </div>
@@ -135,28 +145,40 @@ async function confirmCopy(): Promise<void> {
         <RouterLink v-if="!store.data?.settings.hasAiKey" to="/settings" class="text-link">配置 AI 服务</RouterLink>
       </div>
     </div>
-    <div v-if="store.data?.workflows.length" class="surface list">
-      <div v-for="flow in store.data.workflows" :key="flow.id" class="workflow-list-row">
-        <RouterLink :to="{ name: 'editor', params: { id: flow.id } }" class="flow-row">
-          <span class="node-icon" :class="trigger(flow)?.type">
-            <UIcon :name="trigger(flow) ? nodeIcons[trigger(flow)!.type] : 'i-lucide-workflow'" mode="svg" />
-          </span>
-          <span class="row-main"><strong>{{ flow.name }}</strong><small>{{ trigger(flow) ? nodeNames[trigger(flow)!.type] : '未配置触发器' }}</small></span>
-          <span class="muted">{{ flow.nodes.length }} 个节点</span>
-          <UIcon name="i-lucide-chevron-right" class="muted" />
+
+    <div v-if="store.data?.workflows.length" class="flow-grid">
+      <article v-for="flow in displayedWorkflows" :key="flow.id" class="flow-grid-card surface">
+        <RouterLink :to="{ name: 'editor', params: { id: flow.id } }" class="flow-grid-card-body">
+          <div class="flow-grid-card-top">
+            <span class="node-icon" :class="trigger(flow)?.type">
+              <UIcon :name="trigger(flow) ? nodeIcons[trigger(flow)!.type] : 'i-lucide-workflow'" mode="svg" />
+            </span>
+            <span class="status" :class="{ online: flow.enabled }">{{ flow.enabled ? '运行中' : '已停用' }}</span>
+          </div>
+          <strong class="flow-grid-name" :title="flow.name">{{ flow.name }}</strong>
+          <div class="flow-grid-meta muted">
+            <span>{{ trigger(flow) ? nodeNames[trigger(flow)!.type] : '未配置触发器' }}</span>
+            <span>·</span>
+            <span>{{ flow.nodes.length }} 个节点</span>
+          </div>
         </RouterLink>
-        <UButton class="mr-2 shrink-0" color="neutral" variant="outline" icon="i-lucide-play"
-          :aria-label="'手动运行流程 ' + flow.name" :loading="running.has(flow.id)"
-          :disabled="pending || running.has(flow.id) || !trigger(flow)" @click="run(flow)">手动运行</UButton>
-        <UButton :color="flow.enabled ? 'success' : 'neutral'" variant="soft" :icon="flow.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
-          :aria-label="(flow.enabled ? '停用流程 ' : '启用流程 ') + flow.name"
-          :disabled="pending || running.has(flow.id)" :loading="toggling === flow.id" @click="toggleEnabled(flow)">{{ flow.enabled ? '停用' : '启用' }}</UButton>
-        <UButton class="ml-4" color="neutral" variant="ghost" icon="i-lucide-copy" :aria-label="'复制流程 ' + flow.name"
-          title="复制流程" :disabled="pending" @click="requestCopy(flow)" />
-        <UButton color="error" variant="ghost" icon="i-lucide-trash-2"
-          :aria-label="'删除流程 ' + flow.name" :title="flow.enabled ? '请先停用流程' : '删除流程'"
-          :disabled="pending || flow.enabled || running.has(flow.id)" @click="requestDeletion(flow)" />
-      </div>
+        <div class="flow-grid-card-footer">
+          <UButton color="neutral" variant="outline" size="xs" icon="i-lucide-play"
+            :aria-label="'手动运行流程 ' + flow.name" :loading="running.has(flow.id)"
+            :disabled="pending || running.has(flow.id) || !trigger(flow)" @click="run(flow)">运行</UButton>
+          <UButton :color="flow.enabled ? 'success' : 'neutral'" variant="soft" size="xs"
+            :icon="flow.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
+            :aria-label="(flow.enabled ? '停用流程 ' : '启用流程 ') + flow.name"
+            :disabled="pending || running.has(flow.id)" :loading="toggling === flow.id" @click="toggleEnabled(flow)">{{ flow.enabled ? '停用' : '启用' }}</UButton>
+          <div class="ml-auto actions">
+            <UButton color="neutral" variant="ghost" size="xs" icon="i-lucide-copy" :aria-label="'复制流程 ' + flow.name"
+              title="复制流程" :disabled="pending" @click="requestCopy(flow)" />
+            <UButton color="error" variant="ghost" size="xs" icon="i-lucide-trash-2"
+              :aria-label="'删除流程 ' + flow.name" :title="flow.enabled ? '请先停用流程' : '删除流程'"
+              :disabled="pending || flow.enabled || running.has(flow.id)" @click="requestDeletion(flow)" />
+          </div>
+        </div>
+      </article>
     </div>
     <div v-else class="surface empty-state">
       <span class="empty-icon"><UIcon name="i-lucide-workflow" /></span>

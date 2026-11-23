@@ -26,7 +26,7 @@ function triggerOf(flow?: Graph): Trigger | undefined {
 function triggerConfig(flow?: Graph): string | undefined {
   const node = triggerOf(flow)
   if (!node) return
-  const { x, y, name, ...config } = node
+  const { x: _x, y: _y, name: _name, ...config } = node
   return JSON.stringify(config)
 }
 
