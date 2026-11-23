@@ -113,7 +113,7 @@ describe('重试与失败出口', () => {
       { id: 'send', type: 'http', x: 230, y: 0, method: 'GET', url: 'https://fake_url/x', headers: [], body: '' },
       {
         id: 'fallback', type: 'data', x: 460, y: 0,
-        value: '{"message":"{{send.error.message}}","status":"{{send.error.status}}"}'
+        value: '{"message":"@{send.error.message}","status":"@{send.error.status}"}'
       }
     ]
     const edges: FlowEdge[] = [
@@ -141,7 +141,7 @@ describe('运行记录', () => {
         id: 'send', type: 'http', x: 230, y: 0, method: 'POST', url: 'https://fake_url/secret',
         headers: [{ name: 'Authorization', value: 'Bearer fake_key' }], body: '{"token":"fake_secret"}'
       },
-      { id: 'set', type: 'data', x: 460, y: 0, value: '{"body":"{{send.body}}","type":"{{send.headers.content-type}}"}' }
+      { id: 'set', type: 'data', x: 460, y: 0, value: '{"body":"@{send.body}","type":"@{send.headers.content-type}"}' }
     ]
     const edges: FlowEdge[] = [
       { id: 'next', from: 'start', to: 'send', port: 'next' },
@@ -172,9 +172,9 @@ describe('运行记录', () => {
     })
     const nodes: FlowNode[] = [
       { id: 'start', type: 'manual', x: 0, y: 0 },
-      { id: 'notify', type: 'notification', x: 230, y: 0, title: '标题 {{start.triggeredAt}}', body: '正文 fake_info' },
+      { id: 'notify', type: 'notification', x: 230, y: 0, title: '标题 @{start.triggeredAt}', body: '正文 fake_info' },
       { id: 'llm', type: 'llm', x: 460, y: 0, system: '系统 fake_info', prompt: '提示 fake_info', format: 'text' },
-      { id: 'save', type: 'fileWrite', x: 690, y: 0, path: dir + '/out.txt', format: 'text', content: 'fake_info {{llm.value}}' }
+      { id: 'save', type: 'fileWrite', x: 690, y: 0, path: dir + '/out.txt', format: 'text', content: 'fake_info @{llm.value}' }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'start', to: 'notify', port: 'next' },

@@ -2,14 +2,17 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import writeFileAtomic from 'write-file-atomic'
 import type { IpSample, Run, RunSource, Theme } from '../shared/ipc'
-import { componentSchema, createSiteConfig, workflowSchema, type NodeComponent, type SiteConfig, type Workflow } from '../shared/workflow'
+import {
+  componentSchema, createSiteConfig, formatFieldRef, mapNodeTemplates, workflowSchema,
+  type NodeComponent, type SiteConfig, type Workflow
+} from '../shared/workflow'
 
 export type QueuedTask = {
   id: string; flow: Workflow; payload: unknown; allowDisabled: boolean; runId?: string; source?: RunSource
 }
 
 export type State = {
-  version: 1
+  version: 2
   theme: Theme
   workflows: Workflow[]
   components: NodeComponent[]
@@ -34,9 +37,13 @@ function migrateSites(sites: SiteConfig[]): SiteConfig[] {
   })
 }
 
+function migrateTemplate(value: string): string {
+  return value.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_expression, path: string) => formatFieldRef(path))
+}
+
 export class Storage {
   state: State = {
-    version: 1, theme: 'light', workflows: [], components: [], baselines: {}, samples: {}, runs: [],
+    version: 2, theme: 'light', workflows: [], components: [], baselines: {}, samples: {}, runs: [],
     pollBaselines: {}, clockDates: {}, queue: [],
     ai: { url: '', model: '', encryptedKey: '' }
   }
@@ -57,17 +64,24 @@ export class Storage {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
       throw error
     }
-    const state: State = JSON.parse(raw)
-    if (state.version !== 1 || !Array.isArray(state.workflows) || !Array.isArray(state.runs) ||
-        !state.samples || !state.baselines || !state.ai) {
+    const loaded: Omit<State, 'version'> & { version: 1 | 2 } = JSON.parse(raw)
+    if ((loaded.version !== 1 && loaded.version !== 2) || !Array.isArray(loaded.workflows) || !Array.isArray(loaded.runs) ||
+        !loaded.samples || !loaded.baselines || !loaded.ai) {
       throw new Error('本地数据格式无效')
+    }
+    const state: State = { ...loaded, version: 2 }
+    const upgradeTemplates = loaded.version === 1
+    const readWorkflow = (source: unknown): Workflow => {
+      const workflow = workflowSchema.parse(source)
+      if (upgradeTemplates) for (const node of workflow.nodes) mapNodeTemplates(node, migrateTemplate)
+      return workflow
     }
     // 单个流程/组件/队列项损坏时降级剔除并上报,而不是拒绝启动。
     const label = (item: unknown, index: number): string => {
       const name = (item as { name?: unknown } | null)?.name
       return typeof name === 'string' && name.trim() ? `「${name}」` : `第 ${index + 1} 条`
     }
-    let migrated = false
+    let migrated = upgradeTemplates
     let dropped = 0
     state.workflows = state.workflows.flatMap((flow, index) => {
       try {
@@ -79,7 +93,7 @@ export class Storage {
           delete state.samples[flow.id]
           migrated = true
         }
-        return [workflowSchema.parse(flow)]
+        return [readWorkflow(flow)]
       } catch (error) {
         dropped++
         this.report(`本地流程${label(flow, index)}解析失败，已跳过：${(error as Error).message}`)
@@ -92,7 +106,9 @@ export class Storage {
           component.config.sites = migrateSites(component.config.sites)
           migrated = true
         }
-        return [componentSchema.parse(component)]
+        const parsed = componentSchema.parse(component)
+        if (upgradeTemplates) mapNodeTemplates(parsed.config, migrateTemplate)
+        return [parsed]
       } catch (error) {
         dropped++
         this.report(`本地组件${label(component, index)}解析失败，已跳过：${(error as Error).message}`)
@@ -103,13 +119,21 @@ export class Storage {
     state.clockDates ??= {}
     state.queue = (Array.isArray(state.queue) ? state.queue : []).flatMap((task, index) => {
       try {
-        return [{ ...task, flow: workflowSchema.parse(task.flow) }]
+        return [{ ...task, flow: readWorkflow(task.flow) }]
       } catch (error) {
         dropped++
         this.report(`本地排队任务（流程${label(task?.flow, index)}）解析失败，已丢弃：${(error as Error).message}`)
         return []
       }
     })
+    if (upgradeTemplates) {
+      for (const run of state.runs) {
+        const snapshot = workflowSchema.safeParse(run?.workflow)
+        if (!snapshot.success) continue
+        for (const node of snapshot.data.nodes) mapNodeTemplates(node, migrateTemplate)
+        run.workflow = snapshot.data
+      }
+    }
     state.theme = state.theme === 'dark' ? 'dark' : 'light'
     this.state = state
     if (migrated || dropped || state.queue.some((task) => task.runId) || state.runs.some((run) => run.status === 'running')) {

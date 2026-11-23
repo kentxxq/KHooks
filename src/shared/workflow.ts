@@ -171,7 +171,17 @@ export function parseHttpUrl(value: string): URL {
 }
 
 const fieldSyntax = /^[\w-]+(?:\.[\w-]+)+$/
-const templateField = /\{\{\s*([\w.-]+)\s*\}\}/g
+const templateField = /@\{([\w.-]+)\}/g
+const exactTemplateField = new RegExp('^' + templateField.source + '$')
+
+export function formatFieldRef(path: string): string {
+  return '@{' + path + '}'
+}
+
+export function exactFieldRef(template: string): string | undefined {
+  const match = exactTemplateField.exec(template)
+  return match?.[0] === template ? match[1] : undefined
+}
 
 export function fieldRefs(template: string): string[] {
   return Array.from(template.matchAll(templateField), (match) => match[1])
@@ -181,26 +191,43 @@ export function replaceFieldRefs(template: string, replace: (path: string, expre
   return template.replace(templateField, (expression, path: string, offset: number) => replace(path, expression, offset))
 }
 
+export function mapNodeTemplates(node: NodeComponent['config'], map: (value: string) => string): void {
+  switch (node.type) {
+    case 'data':
+      node.value = map(node.value)
+      for (const field of node.mapping ?? []) field.value = map(field.value)
+      break
+    case 'fileWrite':
+      node.content = map(node.content)
+      node.path = map(node.path)
+      break
+    case 'fileRead':
+      node.path = map(node.path)
+      break
+    case 'llm':
+      node.system = map(node.system)
+      node.prompt = map(node.prompt)
+      break
+    case 'notification':
+      node.title = map(node.title)
+      node.body = map(node.body)
+      break
+    case 'http':
+      node.url = map(node.url)
+      for (const header of node.headers) header.value = map(header.value)
+      node.body = map(node.body)
+      break
+  }
+}
+
 export function instantiateComponent(component: NodeComponent, id: string, x: number, y: number): FlowNode {
   const node = { ...structuredClone(component.config), id, x, y, name: component.name }
-  const clear = (value: string) => replaceFieldRefs(value, () => '')
-  switch (node.type) {
-    case 'condition': return { ...node, field: '', group: node.group && {
-      ...node.group, rules: node.group.rules.map((rule) => ({ ...rule, field: '' }))
-    } }
-    case 'data': return { ...node, value: clear(node.value), mapping: node.mapping?.map((field) => ({ ...field, value: clear(field.value) })) }
-    case 'fileRead': return { ...node, path: clear(node.path) }
-    case 'fileWrite': return { ...node, path: clear(node.path), content: clear(node.content) }
-    case 'llm': return { ...node, system: clear(node.system), prompt: clear(node.prompt) }
-    case 'notification': return { ...node, title: clear(node.title), body: clear(node.body) }
-    case 'http': return {
-      ...node,
-      url: clear(node.url),
-      headers: node.headers.map(({ name, value }) => ({ name, value: clear(value) })),
-      body: clear(node.body)
-    }
-    default: return node
+  if (node.type === 'condition') {
+    node.field = ''
+    for (const rule of node.group?.rules ?? []) rule.field = ''
   }
+  mapNodeTemplates(node, (value) => replaceFieldRefs(value, () => ''))
+  return node
 }
 
 export function parentsOf(graph: Graph, nodeId: string): FlowNode[] {
@@ -299,7 +326,7 @@ export function validateWorkflow(graph: Graph): string | undefined {
       }
     }
     if (node.type === 'fileRead' || node.type === 'fileWrite') {
-      if (!isAbsoluteFilePath(node.path) && !node.path.trim().match(/^\{\{\s*[\w.-]+\s*\}\}$/)) return '文件节点需要绝对路径或上游路径引用'
+      if (!isAbsoluteFilePath(node.path) && !exactFieldRef(node.path.trim())) return '文件节点需要绝对路径或上游路径引用'
       const values = node.type === 'fileWrite' ? [node.path, node.content] : [node.path]
       if (values.flatMap(fieldRefs).some((field) => !validRef(field))) return '文件节点只能引用上游字段'
       if (node.type === 'fileWrite' && node.format === 'json') {
@@ -393,8 +420,8 @@ export function renderTemplate(template: string, outputs: Record<string, unknown
 
 export function renderJson(value: unknown, outputs: Record<string, unknown>): unknown {
   if (typeof value === 'string') {
-    const field = value.match(/^\{\{\s*([\w.-]+)\s*\}\}$/)
-    return field ? requiredField(outputs, field[1]) : renderTemplate(value, outputs)
+    const field = exactFieldRef(value)
+    return field ? requiredField(outputs, field) : renderTemplate(value, outputs)
   }
   if (Array.isArray(value)) return value.map((item) => renderJson(item, outputs))
   if (value && typeof value === 'object') {

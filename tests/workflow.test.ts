@@ -63,7 +63,7 @@ describe('图校验和字段求值', () => {
     expect(evaluate(node, '2')).toBe(false)
     const values = { start: { distinctIpCount: 2, results: [{ ip: '203.0.113.11' }] } }
     expect(readField(values, 'start.constructor')).toBeUndefined()
-    expect(renderJson({ count: '{{start.distinctIpCount}}', hint: 'IP {{start.results.0.ip}}' }, values))
+    expect(renderJson({ count: '@{start.distinctIpCount}', hint: 'IP @{start.results.0.ip}' }, values))
       .toEqual({ count: 2, hint: 'IP 203.0.113.11' })
   })
 })

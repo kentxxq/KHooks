@@ -32,8 +32,8 @@ describe('触发器与节点的组合链路', () => {
     const engine = createEngine({ store })
     const nodes: FlowNode[] = [
       { id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory', events: ['changed'] },
-      { id: 'read', type: 'fileRead', x: 230, y: 0, path: '{{watch.path}}', format: 'text' },
-      { id: 'send', type: 'http', x: 460, y: 0, method: 'POST', url: base + '/upload', headers: [], body: '{"text":"{{read.content}}"}' }
+      { id: 'read', type: 'fileRead', x: 230, y: 0, path: '@{watch.path}', format: 'text' },
+      { id: 'send', type: 'http', x: 460, y: 0, method: 'POST', url: base + '/upload', headers: [], body: '{"text":"@{read.content}"}' }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'watch', to: 'read', port: 'next' },
@@ -72,13 +72,13 @@ describe('触发器与节点的组合链路', () => {
       { id: 'poll', type: 'httpPoll', x: 0, y: 0, seconds: 1, url: base + '/state', headers: [], jsonPath: '$.state' },
       {
         id: 'map', type: 'data', x: 230, y: 0, value: 'null',
-        mapping: [{ key: 'flag', value: '{{poll.value}}', convert: 'keep' }]
+        mapping: [{ key: 'flag', value: '@{poll.value}', convert: 'keep' }]
       },
       { id: 'gate', type: 'condition', x: 460, y: 0, field: 'map.value.flag', operator: 'eq', value: '"ready"' },
-      { id: 'notify', type: 'notification', x: 690, y: 0, title: '状态 {{map.value.flag}}', body: '已就绪' },
+      { id: 'notify', type: 'notification', x: 690, y: 0, title: '状态 @{map.value.flag}', body: '已就绪' },
       {
         id: 'save', type: 'fileWrite', x: 690, y: 150, path: join(dir, 'state.json'), format: 'json',
-        content: '{"flag":"{{map.value.flag}}"}'
+        content: '{"flag":"@{map.value.flag}"}'
       }
     ]
     const edges: FlowEdge[] = [
@@ -120,9 +120,9 @@ describe('触发器与节点的组合链路', () => {
     const nodes: FlowNode[] = [
       { id: 'clock', type: 'interval', x: 0, y: 0, seconds: 60, clock: { time: '09:30' } },
       { id: 'gate', type: 'condition', x: 230, y: 0, field: 'clock.triggeredAt', operator: 'exists', value: '' },
-      { id: 'save', type: 'fileWrite', x: 460, y: 0, path: file, format: 'text', content: '触发时间 {{clock.triggeredAt}}' },
-      { id: 'load', type: 'fileRead', x: 690, y: 0, path: '{{save.path}}', format: 'text' },
-      { id: 'send', type: 'http', x: 920, y: 0, method: 'POST', url: base + '/done', headers: [], body: '{"text":"{{load.content}}"}' }
+      { id: 'save', type: 'fileWrite', x: 460, y: 0, path: file, format: 'text', content: '触发时间 @{clock.triggeredAt}' },
+      { id: 'load', type: 'fileRead', x: 690, y: 0, path: '@{save.path}', format: 'text' },
+      { id: 'send', type: 'http', x: 920, y: 0, method: 'POST', url: base + '/done', headers: [], body: '{"text":"@{load.content}"}' }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'clock', to: 'gate', port: 'next' },
@@ -159,7 +159,7 @@ describe('触发器与节点的组合链路', () => {
     const nodes: FlowNode[] = [
       { id: 'sys', type: 'system', x: 0, y: 0, events: ['playing'] },
       { id: 'gate', type: 'condition', x: 230, y: 0, field: 'sys.state', operator: 'eq', value: 'true' },
-      { id: 'send', type: 'http', x: 460, y: 0, method: 'POST', url: base + '/play', headers: [], body: '{"event":"{{sys.event}}"}' }
+      { id: 'send', type: 'http', x: 460, y: 0, method: 'POST', url: base + '/play', headers: [], body: '{"event":"@{sys.event}"}' }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'sys', to: 'gate', port: 'next' },

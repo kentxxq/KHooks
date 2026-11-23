@@ -155,11 +155,11 @@ fileWatch 需要 path（绝对路径，如 C:/fake_info）、target（file/direc
 httpPoll 需要 url、headers（{name,value} 数组）、seconds、jsonPath（可为空），输出 previous、value、status、triggeredAt。
 system 需要 events（playing/stopped/offline/online/screenOff/screenOn 数组），输出 event、state、appId（媒体事件）、triggeredAt。
 condition 需要 field（节点ID.字段，例如 trigger.distinctIpCount）、operator（eq/ne/gt/gte/lt/lte/exists/contains/startsWith/endsWith）、value（比较值写成字符串）。组合条件另加 group {match:"all" 或 "any",rules:[{field,operator,value}]}。输出 matched。
-http 需要 method（GET/POST/PUT/PATCH/DELETE/HEAD）、url、headers（{name,value} 数组）、body（JSON 字符串或空字符串），输出 status、body、headers。URL、请求头值和 JSON 字符串值可引用 {{节点ID.字段}}。未知目标地址用 https://fake_url，敏感值用 REPLACE_ME。
+http 需要 method（GET/POST/PUT/PATCH/DELETE/HEAD）、url、headers（{name,value} 数组）、body（JSON 字符串或空字符串），输出 status、body、headers。URL、请求头值和 JSON 字符串值可引用 @{节点ID.字段}。未知目标地址用 https://fake_url，敏感值用 REPLACE_ME。
 delay 需要 seconds（1 到 86400），等待后输出 seconds。
-data 需要 value（有效的 JSON 字符串，字符串值可引用 {{节点ID.字段}}）；可选 mapping（{key,value,convert} 数组，value 为字符串模板，convert 为 keep/text/number/boolean），输出 value。
-notification 需要 title 和 body（字符串，可引用 {{节点ID.字段}}，title 不可为空），输出 sent。
-fileRead、fileWrite 需要 path（绝对路径或 {{节点ID.字段}}）、format（text/json）；fileWrite 另需 content（文本模板或含模板的 JSON 字符串）。fileRead 输出 path、content，fileWrite 输出 path、bytes。
+data 需要 value（有效的 JSON 字符串，字符串值可引用 @{节点ID.字段}）；可选 mapping（{key,value,convert} 数组，value 为字符串模板，convert 为 keep/text/number/boolean），输出 value。
+notification 需要 title 和 body（字符串，可引用 @{节点ID.字段}，title 不可为空），输出 sent。
+fileRead、fileWrite 需要 path（绝对路径或 @{节点ID.字段}）、format（text/json）；fileWrite 另需 content（文本模板或含模板的 JSON 字符串）。fileRead 输出 path、content，fileWrite 输出 path、bytes。
 llm 需要 system（可为空）、prompt、format（text/json）；提示支持字段引用，输出 value。
 处理节点可选 retry {count,seconds}（额外重试 1 到 3 次，固定间隔秒数）。
 连线 {id,from,to,port}，普通出口用 next，条件出口用 yes 或 no，处理节点失败出口用 error，下游可引用 节点ID.error.message、节点ID.error.attempts，HTTP 状态失败还会输出 节点ID.error.status。每个出口可以连接多个下游节点。每条流程恰好一个触发器，其余节点各有一个入口且从触发器可达。禁止环路，仅引用上游节点。没有其他属性。`

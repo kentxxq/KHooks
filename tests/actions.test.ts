@@ -69,7 +69,7 @@ describe('条件节点', () => {
 describe('数据节点', () => {
   it('渲染 JSON 模板并保留原值类型', async () => {
     const value = await executeAction({
-      id: 'set', type: 'data', x: 0, y: 0, value: '{"n":"{{start.n}}","label":"IP {{start.text}}"}'
+      id: 'set', type: 'data', x: 0, y: 0, value: '{"n":"@{start.n}","label":"IP @{start.text}"}'
     }, outputs, signal, services(), {})
     expect(value).toEqual({ value: { n: 5, label: 'IP hello world' } })
   })
@@ -78,10 +78,10 @@ describe('数据节点', () => {
     const value = await executeAction({
       id: 'set', type: 'data', x: 0, y: 0, value: 'null',
       mapping: [
-        { key: 'n', value: '{{start.n}}', convert: 'number' },
-        { key: 'text', value: '{{start.obj}}', convert: 'text' },
+        { key: 'n', value: '@{start.n}', convert: 'number' },
+        { key: 'text', value: '@{start.obj}', convert: 'text' },
         { key: 'flag', value: '1', convert: 'boolean' },
-        { key: 'keep', value: '{{start.obj}}', convert: 'keep' }
+        { key: 'keep', value: '@{start.obj}', convert: 'keep' }
       ]
     }, outputs, signal, services(), {})
     expect(value).toEqual({ value: { n: 5, text: '{"a":1}', flag: true, keep: { a: 1 } } })
@@ -91,7 +91,7 @@ describe('数据节点', () => {
     await expect(executeAction({ id: 'set', type: 'data', x: 0, y: 0, value: 'not json' }, outputs, signal, services(), {}))
       .rejects.toThrow()
     await expect(executeAction({
-      id: 'set', type: 'data', x: 0, y: 0, value: '{"n":"{{start.missing}}"}'
+      id: 'set', type: 'data', x: 0, y: 0, value: '{"n":"@{start.missing}"}'
     }, outputs, signal, services(), {})).rejects.toThrow('上游字段不存在')
     await expect(executeAction({
       id: 'set', type: 'data', x: 0, y: 0, value: 'null',
@@ -128,9 +128,9 @@ describe('HTTP 节点', () => {
     const trace: Trace = {}
     const result = await executeAction({
       id: 'send', type: 'http', x: 0, y: 0, method: 'POST',
-      url: '{{start.base}}/call?n={{start.n}}',
-      headers: [{ name: 'X-Test', value: '{{start.text}}' }],
-      body: '{"n":"{{start.n}}","text":"{{start.text}}"}'
+      url: '@{start.base}/call?n=@{start.n}',
+      headers: [{ name: 'X-Test', value: '@{start.text}' }],
+      body: '{"n":"@{start.n}","text":"@{start.text}"}'
     }, { ...outputs, start: { ...outputs.start, base: 'https://fake_url' } }, signal, services({ fetcher }), trace)
     expect(result).toMatchObject({
       status: 200,
@@ -183,7 +183,7 @@ describe('通知节点', () => {
     const notify = vi.fn()
     const trace: Trace = {}
     await expect(executeAction({
-      id: 'notify', type: 'notification', x: 0, y: 0, title: 'IP {{start.text}}', body: '数量 {{start.n}}'
+      id: 'notify', type: 'notification', x: 0, y: 0, title: 'IP @{start.text}', body: '数量 @{start.n}'
     }, outputs, signal, services({ notify }), trace)).resolves.toEqual({ sent: true })
     expect(notify).toHaveBeenCalledWith('IP hello world', '数量 5')
     expect(trace.notification).toEqual({ title: 'IP hello world', body: '数量 5' })
@@ -231,14 +231,14 @@ describe('文件节点', () => {
     const textTrace: Trace = {}
     const bytes = Buffer.byteLength('数量 5')
     await expect(executeAction({
-      id: 'save', type: 'fileWrite', x: 0, y: 0, path: textPath, format: 'text', content: '数量 {{start.n}}'
+      id: 'save', type: 'fileWrite', x: 0, y: 0, path: textPath, format: 'text', content: '数量 @{start.n}'
     }, outputs, signal, services(), textTrace)).resolves.toEqual({ path: textPath, bytes })
     expect(await readFile(textPath, 'utf8')).toBe('数量 5')
     expect(textTrace.details).toEqual({ format: 'text', path: textPath })
 
     const jsonPath = join(dir, 'out.json')
     await executeAction({
-      id: 'save', type: 'fileWrite', x: 0, y: 0, path: jsonPath, format: 'json', content: '{"n":"{{start.n}}"}'
+      id: 'save', type: 'fileWrite', x: 0, y: 0, path: jsonPath, format: 'json', content: '{"n":"@{start.n}"}'
     }, outputs, signal, services(), {})
     expect(await readFile(jsonPath, 'utf8')).toBe('{"n":5}')
   })
@@ -251,7 +251,7 @@ describe('文件节点', () => {
     const path = join(dir, 'big.txt')
     const text = '中🙂'.repeat(50000)
     await expect(executeAction({
-      id: 'save', type: 'fileWrite', x: 0, y: 0, path, format: 'text', content: '{{read.content}}'
+      id: 'save', type: 'fileWrite', x: 0, y: 0, path, format: 'text', content: '@{read.content}'
     }, { read: { content: text } }, signal, services(), {})).resolves.toEqual({ path, bytes: Buffer.byteLength(text) })
     expect(await readFile(path, 'utf8')).toBe(text)
   })
@@ -264,7 +264,7 @@ describe('大模型节点', () => {
     const text = stubFetch(() => llmResponse('hello'))
     const textTrace: Trace = {}
     await expect(executeAction({
-      id: 'llm', type: 'llm', x: 0, y: 0, system: 'sys', prompt: '问 {{start.n}}', format: 'text'
+      id: 'llm', type: 'llm', x: 0, y: 0, system: 'sys', prompt: '问 @{start.n}', format: 'text'
     }, outputs, signal, services({ fetcher: text, ai }), textTrace)).resolves.toEqual({ value: 'hello' })
     expect(textTrace.details).toEqual({ format: 'text', model: 'fake_info' })
     expect(text.calls[0].url.pathname).toBe('/v1/chat/completions')

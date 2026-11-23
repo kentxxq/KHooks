@@ -171,7 +171,7 @@ describe('httpPoll 触发器', () => {
     const engine = createEngine({ store })
     const graph = chain(
       { id: 'poll', type: 'httpPoll', x: 0, y: 0, seconds: 1, url: base + '/value', headers: [], jsonPath: '$.value' },
-      { id: 'set', type: 'data', x: 230, y: 0, value: '{"v":"{{poll.value}}","old":"{{poll.previous}}"}' }
+      { id: 'set', type: 'data', x: 230, y: 0, value: '{"v":"@{poll.value}","old":"@{poll.previous}"}' }
     )
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.enable('flow', true)
@@ -270,7 +270,7 @@ describe('fileWatch 触发器', () => {
     const engine = createEngine({ store })
     const graph = chain(
       { id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory', events: ['changed'] },
-      { id: 'set', type: 'data', x: 230, y: 0, value: '{"event":"{{watch.event}}"}' }
+      { id: 'set', type: 'data', x: 230, y: 0, value: '{"event":"@{watch.event}"}' }
     )
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.enable('flow', true)
@@ -298,7 +298,7 @@ describe('system 触发器', () => {
     const engine = createEngine({ store, system })
     const graph = chain(
       { id: 'sys', type: 'system', x: 0, y: 0, events: ['playing'] },
-      { id: 'set', type: 'data', x: 230, y: 0, value: '{"event":"{{sys.event}}","state":"{{sys.state}}"}' }
+      { id: 'set', type: 'data', x: 230, y: 0, value: '{"event":"@{sys.event}","state":"@{sys.state}"}' }
     )
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.enable('flow', true)

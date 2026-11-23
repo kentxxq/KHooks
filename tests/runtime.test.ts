@@ -17,7 +17,7 @@ function workflow(base: string): Workflow {
       { id: 'ip', type: 'ip', x: 0, y: 0, sites: [site], seconds: 1 },
       { id: 'if', type: 'condition', x: 230, y: 0, field: 'ip.distinctIpCount', operator: 'eq', value: '1' },
       { id: 'send', type: 'http', x: 460, y: 0, url: base + '/call', method: 'POST', headers: [],
-        body: '{"ip":"{{ip.winnerIp}}","count":"{{ip.distinctIpCount}}"}' },
+        body: '{"ip":"@{ip.winnerIp}","count":"@{ip.distinctIpCount}"}' },
       { id: 'other', type: 'http', x: 460, y: 150, url: base + '/other', method: 'GET', headers: [], body: '' }
     ],
     edges: [
@@ -28,20 +28,31 @@ function workflow(base: string): Workflow {
   }
 }
 
-it('加载旧数据时替换搜狐、移除 CIP.CC 并停用无可用站点的流程', async () => {
+it('加载旧数据时升级站点和上游变量，停用无可用站点的流程', async () => {
   const file = await storageFile()
   const store = new Storage(file)
   const cip = { id: 'cip', mode: 'text', path: '' }
   const oldConfig = { type: 'ip', seconds: 1, sites: [site, { id: 'sohu', mode: 'text', path: '' }, cip] }
   const flow = workflow('https://fake_url')
+  const oldBody = '{"ip":"{{ ip.winnerIp }}","count":"{{ip.distinctIpCount}}"}'
+  const body = '{"ip":"@{ip.winnerIp}","count":"@{ip.distinctIpCount}"}'
+  const oldFlow = { ...flow, nodes: flow.nodes.map((node) => node.id === 'send' ? { ...node, body: oldBody } : node) }
   const previousIp = '203.0.113.10'
   await writeFile(file, JSON.stringify({
-    ...store.state,
+    ...store.state, version: 1,
     workflows: [
-      { ...flow, enabled: true, nodes: [{ ...flow.nodes[0], ...oldConfig }, ...flow.nodes.slice(1)] },
+      { ...oldFlow, enabled: true, nodes: [{ ...oldFlow.nodes[0], ...oldConfig }, ...oldFlow.nodes.slice(1)] },
       { ...flow, id: 'cip-only', enabled: true, nodes: [{ ...flow.nodes[0], ...oldConfig, sites: [cip] }, ...flow.nodes.slice(1)] }
     ],
-    components: [{ id: 'legacy', name: '旧触发器', config: oldConfig }],
+    components: [
+      { id: 'legacy', name: '旧触发器', config: oldConfig },
+      { id: 'file', name: '旧文件组件', config: { type: 'fileWrite', format: 'text', path: 'C:/fake_info', content: '{{ip.winnerIp}}' } }
+    ],
+    queue: [{ id: 'task', flow: oldFlow, payload: {}, allowDisabled: true }],
+    runs: [{
+      id: 'run', workflowId: flow.id, name: flow.name, workflow: oldFlow, status: 'success',
+      startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:01.000Z', steps: [], edges: []
+    }],
     baselines: { [flow.id]: previousIp },
     samples: { [flow.id]: { winnerIp: previousIp } }
   }))
@@ -50,10 +61,15 @@ it('加载旧数据时替换搜狐、移除 CIP.CC 并停用无可用站点的�
 
   const expectedSites = [site, { id: 'kentxxq', mode: 'json', path: '$.ip' }]
   expect(store.state.workflows[0].nodes[0]).toMatchObject({ sites: expectedSites })
+  expect(store.state.workflows[0].nodes[2]).toMatchObject({ body })
   expect(store.state.workflows[0].enabled).toBe(true)
   expect(store.state.workflows[1]).toMatchObject({ enabled: false })
   expect(store.state.workflows[1].nodes[0]).toMatchObject({ sites: [] })
   expect(store.state.components[0].config).toMatchObject({ sites: expectedSites })
+  expect(store.state.components[1].config).toMatchObject({ content: '@{ip.winnerIp}' })
+  expect(store.state.queue[0].flow.nodes[2]).toMatchObject({ body })
+  expect(store.state.runs[0].workflow.nodes[2]).toMatchObject({ body })
+  expect(store.state.version).toBe(2)
   expect(store.state.baselines).not.toHaveProperty(flow.id)
   expect(store.state.samples).not.toHaveProperty(flow.id)
   expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(store.state)
@@ -142,7 +158,7 @@ it('跨重启保留基线，首次不执行，同一变化只请求一次并记�
   await vi.waitFor(() => expect(probes).toBeGreaterThanOrEqual(3), { timeout: 2500 })
   expect(captures).toEqual([{ path: '/call', body: { ip: current, count: 1 } }])
   expect(reopened.state.runs).toHaveLength(1)
-  expect(JSON.parse(await readFile(file, 'utf8')).version).toBe(1)
+  expect(JSON.parse(await readFile(file, 'utf8')).version).toBe(2)
 })
 
 it('站点超时独立失败，HTTP 非 2xx 的节点记录错误', async () => {

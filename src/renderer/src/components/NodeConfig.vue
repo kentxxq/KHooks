@@ -1,57 +1,43 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useToast } from '@nuxt/ui/composables/useToast'
 import {
   conversions, createSiteConfig, fileEvents, isTrigger, methods, nodeLabel, outputFields, parentsOf, siteId, sites, systemEvents,
   type FlowNode, type Graph, type Rule, type SiteConfig, type SiteId
 } from '../../../shared/workflow'
 import { copy, desktop, errorMessage } from '../model'
-import NotificationBody from './NotificationBody.vue'
+import VariableInput from './VariableInput.vue'
 
 const props = defineProps<{ node: FlowNode; graph: Graph; readonly: boolean }>()
 const emit = defineEmits<{ change: [node: FlowNode] }>()
 const toast = useToast()
 const testing = ref<Partial<Record<SiteId, boolean>>>({})
 const pathErrors = ref<Partial<Record<SiteId, { path: string; message: string }>>>({})
-const refField = ref('')
-const notificationTitle = useTemplateRef<{ inputRef?: HTMLInputElement }>('notificationTitle')
-const notificationBody = useTemplateRef('notificationBody')
-
-const fieldGroups = computed(() => {
+const variableFields = computed<{ id: string; label: string }[]>((previous) => {
   const parents = parentsOf(props.graph, props.node.id)
-  return parents.map((node, index) => {
+  const fields = parents.flatMap((node, index) => {
     const next = parents[index - 1] ?? props.node
     const failure = props.graph.edges.some((edge) => edge.from === node.id && edge.to === next.id && edge.port === 'error')
     const fields = failure ? [
       { key: 'error.message', label: '错误消息' }, { key: 'error.attempts', label: '尝试次数' },
       ...(node.type === 'http' ? [{ key: 'error.status', label: 'HTTP 状态码' }] : [])
     ] : outputFields(node)
-    return { id: node.id, label: nodeLabel(props.graph, node),
-      fields: fields.map((field) => ({ value: node.id + '.' + field.key, label: field.label })) }
+    const label = nodeLabel(props.graph, node)
+    return fields.map((field) => ({ id: node.id + '.' + field.key, label: (label + '-' + field.label).replace(/\s+/g, '') }))
   })
-})
-const fieldValues = computed(() => new Set(fieldGroups.value.flatMap((group) => group.fields.map((field) => field.value))))
-const notificationFields = computed<{ id: string; label: string }[]>((previous) => {
-  const fields = fieldGroups.value.flatMap((group) => group.fields.map((field) => ({
-    id: field.value, label: (group.label + '-' + field.label).replace(/\s+/g, '')
-  })))
-  // Mention 菜单按对象身份匹配搜索结果，正文编辑期间复用内容相同的候选项。
+  // 复用内容相同的候选项，避免编辑时重建变量标签和菜单结果。
   if (previous?.length === fields.length && fields.every((field, index) =>
     field.id === previous[index].id && field.label === previous[index].label)) return previous
   return fields
 })
 const conditionRules = computed<Rule[]>(() => props.node.type === 'condition'
   ? props.node.group?.rules ?? [asRule(props.node)] : [])
-const hasTemplateFields = computed(() => ['http', 'data', 'fileRead', 'fileWrite', 'llm'].includes(props.node.type))
 type Action = Extract<FlowNode, { retry?: unknown }>
 // 条件节点只有「是/否」出口且运行期不会失败,不提供重试配置(该 computed 仅服务「失败后重试」区块)。
 const actionNode = computed(() => isTrigger(props.node) || props.node.type === 'condition' ? undefined : props.node as Action)
 const clockMode = computed(() => props.node.type === 'interval' && props.node.clock
   ? props.node.clock.days ? 'weekly' : 'daily' : 'interval')
 const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-watch(fieldValues, (values) => {
-  if (!values.has(refField.value)) refField.value = ''
-})
 const comparisons = [
   { id: 'eq', label: '等于' }, { id: 'ne', label: '不等于' }, { id: 'gt', label: '大于' },
   { id: 'gte', label: '大于等于' }, { id: 'lt', label: '小于' }, { id: 'lte', label: '小于等于' },
@@ -180,35 +166,6 @@ function setHeader(index: number, field: 'name' | 'value', value: string): void 
   change(props.node, { headers: props.node.headers.map((header, i) => i === index ? { ...header, [field]: value } : header) })
 }
 
-async function copyReference(): Promise<void> {
-  if (!refField.value) return
-  try {
-    await navigator.clipboard.writeText('{{' + refField.value + '}}')
-    toast.add({ title: '已复制', color: 'success' })
-  } catch {
-    toast.add({ title: '复制失败', color: 'error' })
-  }
-}
-
-async function insertNotificationTitleReference(): Promise<void> {
-  const node = props.node
-  if (node.type !== 'notification' || props.readonly || !fieldValues.value.has(refField.value)) return
-  const input = notificationTitle.value?.inputRef
-  if (!input) return
-  const value = node.title
-  const start = input.selectionStart ?? value.length
-  const end = input.selectionEnd ?? start
-  const token = '{{' + refField.value + '}}'
-  const updated = value.slice(0, start) + token + value.slice(end)
-  if (updated.length > input.maxLength) {
-    toast.add({ title: '插入后通知标题超过长度上限', color: 'error' })
-    return
-  }
-  change(node, { title: updated })
-  await nextTick()
-  input.focus()
-  input.setSelectionRange(start + token.length, start + token.length)
-}
 </script>
 
 <template>
@@ -256,8 +213,9 @@ async function insertNotificationTitleReference(): Promise<void> {
         <div v-for="(field, index) in node.mapping" :key="index" class="site-config">
           <UInput :aria-label="'字段名称 ' + (index + 1)" :model-value="field.key" :maxlength="200" :disabled="readonly"
             @update:model-value="updateMapping(index, { key: String($event) })" />
-          <UInput :aria-label="'字段值 ' + (index + 1)" :model-value="field.value" :maxlength="32000" :disabled="readonly"
-            @update:model-value="updateMapping(index, { value: String($event) })" />
+          <VariableInput :id="'mapping-value-' + index" :label="'字段值 ' + (index + 1)" :fields="variableFields"
+            :model-value="field.value" :maxlength="32000" :readonly="readonly"
+            @update:model-value="updateMapping(index, { value: $event })" />
           <select class="input-native" :aria-label="'字段类型 ' + (index + 1)" :value="field.convert" :disabled="readonly"
             @change="updateMapping(index, { convert: ($event.target as HTMLSelectElement).value as keyof typeof conversions })">
             <option v-for="(label, key) in conversions" :key="key" :value="key">{{ label }}</option>
@@ -269,31 +227,16 @@ async function insertNotificationTitleReference(): Promise<void> {
       </template>
       <template v-else>
         <label for="data-value">JSON 值</label>
-        <UTextarea id="data-value" :model-value="node.value" :rows="4" :maxlength="32000" class="full-width code-input" :disabled="readonly"
-          @update:model-value="change(node, { value: String($event) })" />
+        <VariableInput id="data-value" label="JSON 值" :fields="variableFields" :model-value="node.value" :rows="4"
+          :maxlength="32000" class="code-input" :readonly="readonly" @update:model-value="change(node, { value: $event })" />
       </template>
     </template>
     <template v-if="node.type === 'notification'">
       <label for="notification-title">通知标题</label>
-      <UInput id="notification-title" ref="notificationTitle" :model-value="node.title" :maxlength="100" class="full-width" :disabled="readonly"
-        @update:model-value="change(node, { title: String($event) })" />
-      <NotificationBody ref="notificationBody" :model-value="node.body" :fields="notificationFields" :readonly="readonly"
-        @update:model-value="change(node, { body: $event })" />
-      <template v-if="!readonly">
-        <label for="notification-field">上游字段</label>
-        <select id="notification-field" v-model="refField" class="input-native" :disabled="!fieldGroups.length">
-          <option value="">{{ fieldGroups.length ? '选择字段' : '无可用的上游字段' }}</option>
-          <template v-for="group in fieldGroups" :key="group.id">
-            <option v-for="field in group.fields" :key="field.value" :value="field.value">{{ group.label }} · {{ field.label }}</option>
-          </template>
-        </select>
-        <div class="actions">
-          <UButton color="neutral" variant="outline" size="xs" :disabled="!refField"
-            @click="insertNotificationTitleReference">插入标题</UButton>
-          <UButton color="neutral" variant="outline" size="xs" :disabled="!refField"
-            @click="notificationBody?.insertReference(refField)">插入正文</UButton>
-        </div>
-      </template>
+      <VariableInput id="notification-title" label="通知标题" :model-value="node.title" :fields="variableFields" :maxlength="100"
+        :readonly="readonly" @update:model-value="change(node, { title: $event })" />
+      <VariableInput id="notification-body" label="通知正文" :model-value="node.body" :fields="variableFields" :rows="4"
+        :maxlength="1000" :readonly="readonly" expandable @update:model-value="change(node, { body: $event })" />
     </template>
 
     <template v-if="node.type === 'ip'">
@@ -341,8 +284,10 @@ async function insertNotificationTitleReference(): Promise<void> {
     <template v-if="node.type === 'fileWatch' || node.type === 'fileRead' || node.type === 'fileWrite'">
       <label for="local-path">路径</label>
       <div class="actions">
-        <UInput id="local-path" class="full-width" :model-value="node.path" :maxlength="4096" :disabled="readonly"
+        <UInput v-if="node.type === 'fileWatch'" id="local-path" class="full-width" :model-value="node.path" :maxlength="4096" :disabled="readonly"
           @update:model-value="change(node, { path: String($event) })" />
+        <VariableInput v-else id="local-path" label="路径" class="full-width" :model-value="node.path" :maxlength="4096"
+          :fields="variableFields" :readonly="readonly" @update:model-value="change(node, { path: $event })" />
         <UButton v-if="!readonly" variant="outline" color="neutral" @click="pickPath">选择</UButton>
       </div>
     </template>
@@ -368,16 +313,16 @@ async function insertNotificationTitleReference(): Promise<void> {
     </template>
     <template v-if="node.type === 'fileWrite'">
       <label for="file-content">写入内容</label>
-      <UTextarea id="file-content" :rows="4" :model-value="node.content" class="full-width code-input" :disabled="readonly"
-        @update:model-value="change(node, { content: String($event) })" />
+      <VariableInput id="file-content" label="写入内容" :rows="4" :model-value="node.content" :fields="variableFields"
+        class="code-input" :readonly="readonly" @update:model-value="change(node, { content: $event })" />
     </template>
     <template v-if="node.type === 'llm'">
       <label for="llm-system">系统提示</label>
-      <UTextarea id="llm-system" :rows="3" :model-value="node.system" :maxlength="32000" class="full-width" :disabled="readonly"
-        @update:model-value="change(node, { system: String($event) })" />
+      <VariableInput id="llm-system" label="系统提示" :rows="3" :model-value="node.system" :maxlength="32000" :fields="variableFields"
+        :readonly="readonly" @update:model-value="change(node, { system: $event })" />
       <label for="llm-prompt">用户提示</label>
-      <UTextarea id="llm-prompt" :rows="4" :model-value="node.prompt" :maxlength="32000" class="full-width" :disabled="readonly"
-        @update:model-value="change(node, { prompt: String($event) })" />
+      <VariableInput id="llm-prompt" label="用户提示" :rows="4" :model-value="node.prompt" :maxlength="32000" :fields="variableFields"
+        :readonly="readonly" @update:model-value="change(node, { prompt: $event })" />
     </template>
     <template v-if="node.type === 'condition'">
       <template v-if="node.group">
@@ -390,17 +335,8 @@ async function insertNotificationTitleReference(): Promise<void> {
       </template>
       <div v-for="(rule, index) in conditionRules" :key="index" class="site-config">
       <label :for="'condition-field-' + index">上游字段</label>
-      <select :id="'condition-field-' + index" :value="rule.field" class="input-native" :disabled="readonly"
-        @change="updateRule(index, { field: ($event.target as HTMLSelectElement).value })">
-        <option value="">选择字段</option>
-        <option v-if="rule.field && !fieldValues.has(rule.field)" :value="rule.field">{{ rule.field }}</option>
-        <template v-for="group in fieldGroups" :key="group.id">
-          <option v-for="field in group.fields" :key="field.value" :value="field.value">{{ group.label }} · {{ field.label }}</option>
-        </template>
-      </select>
-      <label :for="'condition-path-' + index">字段路径</label>
-      <UInput :id="'condition-path-' + index" :model-value="rule.field" :maxlength="300" class="full-width" :disabled="readonly"
-        @update:model-value="updateRule(index, { field: String($event) })" />
+      <VariableInput :id="'condition-field-' + index" label="上游字段" :model-value="rule.field" :maxlength="300"
+        :fields="variableFields" :readonly="readonly" field-path @update:model-value="updateRule(index, { field: $event })" />
       <label :for="'operator-' + index">运算符</label>
       <select :id="'operator-' + index" class="input-native" :value="rule.operator" :disabled="readonly"
         @change="updateRule(index, { operator: ($event.target as HTMLSelectElement).value as Rule['operator'] })">
@@ -427,12 +363,14 @@ async function insertNotificationTitleReference(): Promise<void> {
       </select>
       </template>
       <label for="http-url">请求地址</label>
-      <UInput id="http-url" :model-value="node.url" :maxlength="4000" class="full-width" :disabled="readonly"
+      <UInput v-if="node.type === 'httpPoll'" id="http-url" :model-value="node.url" :maxlength="4000" class="full-width" :disabled="readonly"
         @update:model-value="change(node, { url: String($event) })" />
+      <VariableInput v-else id="http-url" label="请求地址" :model-value="node.url" :maxlength="4000" :fields="variableFields"
+        :readonly="readonly" @update:model-value="change(node, { url: $event })" />
       <template v-if="node.type === 'http' && node.method !== 'GET' && node.method !== 'HEAD'">
         <label for="http-body">JSON 请求体</label>
-        <UTextarea id="http-body" :model-value="node.body" :rows="4" :maxlength="32000" class="full-width code-input" :disabled="readonly"
-          @update:model-value="change(node, { body: String($event) })" />
+        <VariableInput id="http-body" label="JSON 请求体" :model-value="node.body" :rows="4" :maxlength="32000"
+          :fields="variableFields" class="code-input" :readonly="readonly" @update:model-value="change(node, { body: $event })" />
       </template>
       <template v-if="node.type === 'httpPoll'">
         <label for="poll-path">JSONPath</label>
@@ -447,22 +385,12 @@ async function insertNotificationTitleReference(): Promise<void> {
       <div v-for="(header, index) in node.headers" :key="index" class="header-fields">
         <UInput :aria-label="'请求头名称 ' + (index + 1)" :model-value="header.name" :maxlength="100" :disabled="readonly"
           @update:model-value="setHeader(index, 'name', String($event))" />
-        <UInput :aria-label="'请求头值 ' + (index + 1)" :model-value="header.value" :maxlength="4000" :disabled="readonly"
+        <UInput v-if="node.type === 'httpPoll'" :aria-label="'请求头值 ' + (index + 1)" :model-value="header.value" :maxlength="4000" :disabled="readonly"
           @update:model-value="setHeader(index, 'value', String($event))" />
+        <VariableInput v-else :id="'http-header-value-' + index" :label="'请求头值 ' + (index + 1)" :model-value="header.value"
+          :maxlength="4000" :fields="variableFields" :readonly="readonly" @update:model-value="setHeader(index, 'value', $event)" />
         <UButton v-if="!readonly" variant="ghost" color="neutral" icon="i-lucide-x" aria-label="删除请求头"
           @click="change(node, { headers: node.headers.filter((_, i) => i !== index) })" />
-      </div>
-    </template>
-    <template v-if="hasTemplateFields && fieldGroups.length && !readonly">
-      <label for="template-field">上游字段</label>
-      <select id="template-field" v-model="refField" class="input-native">
-        <option value="">选择字段</option>
-        <optgroup v-for="group in fieldGroups" :key="group.id" :label="group.label">
-          <option v-for="field in group.fields" :key="field.value" :value="field.value">{{ field.label }}</option>
-        </optgroup>
-      </select>
-      <div class="actions">
-        <UButton color="neutral" variant="outline" size="xs" :disabled="!refField" @click="copyReference">复制引用</UButton>
       </div>
     </template>
     <template v-if="actionNode">
