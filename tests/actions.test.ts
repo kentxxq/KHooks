@@ -199,30 +199,27 @@ describe('通知节点', () => {
 })
 
 describe('文件节点', () => {
-  it('读取文本和带 BOM 的 JSON 文件', async () => {
+  it('完整读取大文本和带 BOM 的 JSON 文件', async () => {
     const dir = await tempDir('node-')
-    await writeFile(join(dir, 'a.txt'), 'hello')
+    const text = '中🙂'.repeat(50000)
+    await writeFile(join(dir, 'a.txt'), text)
     await writeFile(join(dir, 'a.json'), '\uFEFF{"n":1}')
     await expect(executeAction({
       id: 'read', type: 'fileRead', x: 0, y: 0, path: join(dir, 'a.txt'), format: 'text'
-    }, {}, signal, services(), {})).resolves.toEqual({ path: join(dir, 'a.txt'), content: 'hello' })
+    }, {}, signal, services(), {})).resolves.toEqual({ path: join(dir, 'a.txt'), content: text })
     await expect(executeAction({
       id: 'read', type: 'fileRead', x: 0, y: 0, path: join(dir, 'a.json'), format: 'json'
     }, {}, signal, services(), {})).resolves.toEqual({ path: join(dir, 'a.json'), content: { n: 1 } })
   })
 
-  it('拒绝目录、相对路径、超大文件和缺失文件', async () => {
+  it('拒绝目录、相对路径和缺失文件', async () => {
     const dir = await tempDir('node-')
-    await writeFile(join(dir, 'big.txt'), Buffer.alloc(contentLimit + 1, 97))
     await expect(executeAction({
       id: 'read', type: 'fileRead', x: 0, y: 0, path: dir, format: 'text'
     }, {}, signal, services(), {})).rejects.toThrow('请选择普通文件')
     await expect(executeAction({
       id: 'read', type: 'fileRead', x: 0, y: 0, path: 'relative.txt', format: 'text'
     }, {}, signal, services(), {})).rejects.toThrow('文件路径无效')
-    await expect(executeAction({
-      id: 'read', type: 'fileRead', x: 0, y: 0, path: join(dir, 'big.txt'), format: 'text'
-    }, {}, signal, services(), {})).rejects.toThrow('文件内容超过 256 KB')
     await expect(executeAction({
       id: 'read', type: 'fileRead', x: 0, y: 0, path: join(dir, 'missing.txt'), format: 'text'
     }, {}, signal, services(), {})).rejects.toThrow()
@@ -246,15 +243,17 @@ describe('文件节点', () => {
     expect(await readFile(jsonPath, 'utf8')).toBe('{"n":5}')
   })
 
-  it('拒绝无效 JSON 内容与超大写入', async () => {
+  it('拒绝无效 JSON 并完整写入大文本', async () => {
     const dir = await tempDir('node-')
     await expect(executeAction({
       id: 'save', type: 'fileWrite', x: 0, y: 0, path: join(dir, 'a.json'), format: 'json', content: 'not json'
     }, outputs, signal, services(), {})).rejects.toThrow('文件内容不是有效的 JSON')
+    const path = join(dir, 'big.txt')
+    const text = '中🙂'.repeat(50000)
     await expect(executeAction({
-      id: 'save', type: 'fileWrite', x: 0, y: 0, path: join(dir, 'big.txt'), format: 'text',
-      content: 'x'.repeat(contentLimit + 1)
-    }, outputs, signal, services(), {})).rejects.toThrow('文件内容超过 256 KB')
+      id: 'save', type: 'fileWrite', x: 0, y: 0, path, format: 'text', content: '{{read.content}}'
+    }, { read: { content: text } }, signal, services(), {})).resolves.toEqual({ path, bytes: Buffer.byteLength(text) })
+    expect(await readFile(path, 'utf8')).toBe(text)
   })
 })
 

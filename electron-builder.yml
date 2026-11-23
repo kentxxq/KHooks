@@ -1,5 +1,7 @@
 appId: com.kentxxq.khooks
 productName: KHooks
+electronFuses:
+  runAsNode: true
 artifactName: KHooks-Setup-${version}-${arch}.${ext}
 directories:
   output: dist
@@ -9,6 +11,8 @@ files:
   - package.json
   - resources/icon.png
 extraResources:
+  - from: scripts/khooks.mjs
+    to: cli/khooks.mjs
   - from: debug/tmpfile-AI-windows-events
     to: windows-events
     filter:
@@ -19,6 +23,9 @@ publish:
   repo: KHooks
 win:
   target: nsis
+  extraFiles:
+    - from: scripts/khooks.cmd
+      to: khooks.cmd
   icon: resources/icon.ico
   verifyUpdateCodeSignature: false
 nsis:

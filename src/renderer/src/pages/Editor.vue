@@ -20,7 +20,7 @@ const draft = ref<Workflow>()
 const selection = ref<{ nodes: string[]; edges: string[] }>({ nodes: [], edges: [] })
 const previewType = ref<FlowNode['type']>()
 const draggedType = ref<FlowNode['type']>()
-const pending = ref<'save' | 'enable' | 'disable' | 'run' | 'component'>()
+const pending = ref<'save' | 'enable' | 'disable' | 'run' | 'component' | 'reload'>()
 const componentDraft = ref<{ name: string; node: FlowNode }>()
 const busy = computed(() => pending.value !== undefined)
 const nameError = ref('')
@@ -197,6 +197,25 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
     pending.value = undefined
   }
 }
+
+async function reloadWorkflow(): Promise<void> {
+  const id = draft.value?.id
+  if (!id || busy.value || (dirty.value && !window.confirm('放弃未保存的修改并重新加载？'))) return
+  pending.value = 'reload'
+  try {
+    const current = await desktop.getWorkflow(id)
+    if (!current) throw new Error('流程不存在')
+    await store.refresh()
+    if (draft.value?.id !== id) return
+    draft.value = copy(current)
+    nameError.value = ''
+    select('')
+  } catch (cause) {
+    toast.add({ title: errorMessage(cause), color: 'error' })
+  } finally {
+    pending.value = undefined
+  }
+}
 </script>
 
 <template>
@@ -223,6 +242,8 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
         <UButton color="neutral" variant="outline" icon="i-lucide-history" :to="{ name: 'runs', query: { flow: draft.id } }">运行记录</UButton>
         <UButton color="neutral" variant="outline" icon="i-lucide-save"
           :disabled="busy || !dirty" @click="perform('save')">保存</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :disabled="busy"
+          :loading="pending === 'reload'" @click="reloadWorkflow">重新加载</UButton>
         <UButton :color="draft.enabled ? 'neutral' : 'primary'" :icon="draft.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
           :disabled="busy" @click="perform(draft.enabled ? 'disable' : 'enable')">{{ draft.enabled ? '停用' : '启用' }}</UButton>
       </div>

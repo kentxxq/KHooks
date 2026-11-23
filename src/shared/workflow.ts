@@ -64,7 +64,7 @@ const nodeConfigs = [
     ...actions
   }),
   z.strictObject({ type: z.literal('fileRead'), path, format, ...actions }),
-  z.strictObject({ type: z.literal('fileWrite'), path, format, content: z.string().max(262144), ...actions }),
+  z.strictObject({ type: z.literal('fileWrite'), path, format, content: z.string(), ...actions }),
   z.strictObject({ type: z.literal('llm'), system: z.string().max(32000), prompt: z.string().max(32000), format, ...actions })
 ] as const
 const [manual, interval, ip, fileWatch, httpPoll, system, condition, delay, data, notification, http, fileRead, fileWrite, llm] = nodeConfigs
@@ -302,13 +302,8 @@ export function validateWorkflow(graph: Graph): string | undefined {
       if (!isAbsoluteFilePath(node.path) && !node.path.trim().match(/^\{\{\s*[\w.-]+\s*\}\}$/)) return '文件节点需要绝对路径或上游路径引用'
       const values = node.type === 'fileWrite' ? [node.path, node.content] : [node.path]
       if (values.flatMap(fieldRefs).some((field) => !validRef(field))) return '文件节点只能引用上游字段'
-      if (node.type === 'fileWrite') {
-        // 运行时按 UTF-8 字节限制写入(actions),校验按同一度量拦截,避免多字节内容保存后必然失败。
-        if (new TextEncoder().encode(node.content).length > 262144) return '写入内容超过 256 KB'
-        // 运行时在模板渲染前解析 JSON(actions 的 parseFileJson),content 编写时就必须合法。
-        if (node.format === 'json') {
-          try { JSON.parse(node.content) } catch { return '写入文件需要有效的 JSON' }
-        }
+      if (node.type === 'fileWrite' && node.format === 'json') {
+        try { JSON.parse(node.content) } catch { return '写入文件需要有效的 JSON' }
       }
     }
     if (node.type === 'llm') {

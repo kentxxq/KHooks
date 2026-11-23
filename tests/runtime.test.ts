@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
 import { generateGraph, probe, type Fetch } from '../src/main/network'
 import { Storage } from '../src/main/storage'
+import { Workflows } from '../src/main/workflows'
 import type { Workflow } from '../src/shared/workflow'
 import { cleanupResources, createEngine, listen, storageFile } from './helpers'
 
@@ -180,14 +181,21 @@ it('OpenAI 兼容请求只提交模型、提示和节点约定，拒绝模型返
     response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(value) } }] }))
   })
   const options = { url: base + '/v1', key: 'fake_key', model: 'fake_info' }
-  await expect(generateGraph(options, '编排公网 IP 查询')).resolves.toEqual(valid)
+  const store = new Storage(await storageFile())
+  await store.open()
+  const workflows = new Workflows(store, createEngine({ store }))
+  const generate = async () => workflows.createFromGraph(await generateGraph(options, '编排公网 IP 查询'))
+  const created = await generate()
+  expect(created).toMatchObject({ ...valid, enabled: false })
+  expect(workflows.get(created.id)).toEqual(created)
   expect(captures[0].path).toBe('/v1/chat/completions')
   expect(captures[0].body).toMatchObject({
     model: 'fake_info', messages: [{ role: 'system' }, { role: 'user', content: '编排公网 IP 查询' }]
   })
   expect(Object.keys(captures[0].body).sort()).toEqual(['messages', 'model'])
   value = { ...valid, edges: [] }
-  await expect(generateGraph(options, '编排公网 IP 查询')).rejects.toThrow('未通过校验')
+  await expect(generate()).rejects.toThrow('未通过校验')
+  expect(store.state.workflows).toHaveLength(1)
 })
 
 it('定时流程命中否分支，停用后不再调度', async () => {

@@ -4,7 +4,7 @@ import { setTimeout as wait } from 'node:timers/promises'
 import writeFileAtomic from 'write-file-atomic'
 import type { RunStep } from '../shared/ipc'
 import { evaluate, parseHttpUrl, readField, renderJson, renderTemplate, type FlowNode } from '../shared/workflow'
-import { contentLimit, fetchData, runLlm, type AiOptions, type Fetch } from './network'
+import { fetchData, runLlm, type AiOptions, type Fetch } from './network'
 
 type Action = Exclude<FlowNode, { type: 'manual' | 'interval' | 'ip' | 'fileWatch' | 'httpPoll' | 'system' }>
 type Outputs = Record<string, unknown>
@@ -28,20 +28,15 @@ function convert(value: unknown, mode: 'keep' | 'text' | 'number' | 'boolean'): 
 }
 
 async function readLocalFile(path: string, signal: AbortSignal): Promise<string> {
+  signal.throwIfAborted()
   if (!(await stat(path)).isFile()) throw new Error('请选择普通文件')
   const file = await open(path, 'r')
   try {
     if (!(await file.stat()).isFile()) throw new Error('请选择普通文件')
-    const buffer = Buffer.alloc(contentLimit + 1)
-    let size = 0
-    while (size < buffer.length) {
-      signal.throwIfAborted()
-      const { bytesRead } = await file.read(buffer, size, buffer.length - size, size)
-      if (bytesRead === 0) break
-      size += bytesRead
-    }
-    if (size > contentLimit) throw new Error('文件内容超过 256 KB')
-    return buffer.toString('utf8', 0, size)
+    const stream = file.createReadStream({ encoding: 'utf8', autoClose: false, signal })
+    let content = ''
+    for await (const chunk of stream) content += chunk
+    return content
   } finally {
     await file.close()
   }
@@ -105,11 +100,9 @@ export async function executeAction(
       const value = node.format === 'json'
         ? JSON.stringify(renderJson(parseFileJson(node.content), outputs))
         : renderTemplate(node.content, outputs)
-      const bytes = Buffer.byteLength(value)
-      if (bytes > contentLimit) throw new Error('文件内容超过 256 KB')
       signal.throwIfAborted()
       try { await writeFileAtomic(path, value, { encoding: 'utf8' }) } catch { throw new Error('无法写入文件') }
-      return { path, bytes }
+      return { path, bytes: Buffer.byteLength(value) }
     }
     case 'llm': {
       const details: NonNullable<RunStep['details']> = { format: node.format }

@@ -1,7 +1,7 @@
 import { isIPv4 } from 'node:net'
 import { isDeepStrictEqual } from 'node:util'
 import { JSONPath } from 'jsonpath-plus'
-import { graphSchema, parseHttpUrl, sites, validateWorkflow, type FlowNode, type Graph, type SiteConfig } from '../shared/workflow'
+import { parseHttpUrl, sites, type FlowNode, type SiteConfig } from '../shared/workflow'
 import type { IpSample, SiteResult } from '../shared/ipc'
 
 export type Fetch = (url: string | URL, init?: RequestInit) => Promise<Response>
@@ -220,20 +220,16 @@ export async function runLlm(options: AiOptions, system: string, prompt: string,
   try { return JSON.parse(content) as unknown } catch { throw new Error('模型输出不是有效的 JSON') }
 }
 
-export async function generateGraph(options: AiOptions, prompt: string, fetcher: Fetch = fetch): Promise<Graph> {
+export async function generateGraph(options: AiOptions, prompt: string, fetcher: Fetch = fetch): Promise<unknown> {
   const response = await requestCompletion(options, [
     { role: 'system', content: aiInstruction }, { role: 'user', content: prompt }
   ], fetcher, AbortSignal.timeout(45000))
-  let graph: Graph
   try {
     const payload = JSON.parse(await readText(response, 256_000))
     const content = payload.choices[0].message.content as string
     const raw = content.trim().replace(/^\x60\x60\x60(?:json)?\s*([\s\S]*?)\s*\x60\x60\x60$/i, '$1')
-    graph = graphSchema.parse(JSON.parse(raw))
+    return JSON.parse(raw) as unknown
   } catch {
     throw new Error('AI 返回的流程格式无效')
   }
-  const error = validateWorkflow(graph)
-  if (error) throw new Error('AI 流程未通过校验：' + error)
-  return graph
 }

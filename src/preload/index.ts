@@ -7,6 +7,7 @@ function invoke<K extends Invocation>(name: K, ...args: Parameters<Desktop[K]>):
 
 const desktop: Desktop = {
   snapshot: () => invoke('snapshot'),
+  getWorkflow: (id) => invoke('getWorkflow', id),
   save: (flow) => invoke('save', flow),
   saveComponent: (component) => invoke('saveComponent', component),
   remove: (id) => invoke('remove', id),

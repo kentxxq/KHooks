@@ -80,10 +80,6 @@ describe('配置错误摘要', () => {
       { id: 'start', type: 'manual', x: 0, y: 0 },
       { id: 'timer', type: 'interval', x: 220, y: 0, seconds: 0 }
     ])).toBe('nodes[1].seconds 不能小于 1')
-    expect(parse([
-      { id: 'start', type: 'manual', x: 0, y: 0 },
-      { id: 'save', type: 'fileWrite', x: 220, y: 0, path: 'D:\\tmp\\a.txt', format: 'text', content: 'x'.repeat(262145) }
-    ])).toBe('nodes[1].content 不能大于 262144')
     expect(parse([{ id: 1, type: 'manual', x: 0, y: 0 }])).toBe('nodes[0].id 类型无效')
     expect(parse([{ id: '!!', type: 'manual', x: 0, y: 0 }])).toBe('nodes[0].id 格式无效')
     expect(parse([{ id: 'start', type: 'manual', x: 0, y: 0, extra: 1 }])).toContain('包含不支持的字段')
@@ -124,16 +120,16 @@ describe('运行配置校验', () => {
     expect(validateWorkflow(graph)).toBe('映射字段名称不能为空、重复或包含点号')
   })
 
-  it('按 UTF-8 字节拒绝超过 256 KB 的写入内容', () => {
+  it('接受超过 256 KB 的文件写入内容', () => {
     const graph: Graph = {
-      name: '写入限制',
+      name: '写入大文件',
       nodes: [start, {
         ...createNode('fileWrite', 'save', 220, 0), type: 'fileWrite' as const, path: 'D:\\tmp\\a.txt', format: 'json' as const,
-        content: '{"text":"' + '中'.repeat(90000) + '"}'
+        content: '{"text":"' + '中'.repeat(300000) + '"}'
       }],
       edges: [{ id: 'a', from: 'start', to: 'save', port: 'next' }]
     }
-    expect(validateWorkflow(graph)).toBe('写入内容超过 256 KB')
+    expect(validateWorkflow(graphSchema.parse(graph))).toBeUndefined()
   })
 
   it('拒绝 JSON 格式写入的非法内容', () => {

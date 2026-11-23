@@ -8,6 +8,8 @@ import { Engine } from './engine'
 import { generateGraph, probe, testAiService, type Fetch } from './network'
 import { Storage } from './storage'
 import { WindowsEvents } from './windows-events'
+import { Workflows } from './workflows'
+import { startWorkflowCli } from './workflow-cli'
 import { componentSchema, parseHttpUrl, siteConfig, zodMessage } from '../shared/workflow'
 import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc'
 import {
@@ -41,6 +43,7 @@ let window: BrowserWindow | undefined
 let tray: Tray | undefined
 let quitting = false
 let draining = false
+let workflowCli: Promise<(() => Promise<void>) | undefined> | undefined
 let update: Update = { state: app.isPackaged ? 'idle' : 'disabled' }
 const store = new Storage(join(app.getPath('userData'), 'khooks.json'), notify, console.error)
 const fetcher: Fetch = (url, init) => net.fetch(String(url), init)
@@ -58,6 +61,7 @@ const engine = new Engine(store, fetcher, console.error, (title, body) => {
   development ? join(app.getAppPath(), 'debug', 'tmpfile-AI-windows-events') : join(process.resourcesPath, 'windows-events'),
   'WindowsEvents.exe'
 ), console.error) : undefined)
+const workflows = new Workflows(store, engine)
 const loginArgs = ['--hidden']
 
 function notify(): void {
@@ -151,6 +155,7 @@ function createWindow(show: boolean): void {
 async function quit(): Promise<void> {
   if (draining) return
   draining = true
+  await (await workflowCli)?.().catch(console.error)
   engine.shutdown()
   await engine.drain()
   quitting = true
@@ -207,8 +212,8 @@ function registerIpc(): void {
     components: store.state.components,
     settings: getSettings(), update, version: app.getVersion()
   }))
-  // 不做预解析:engine.save 内部已做 schema parse 并转译中文,预解析会抢先抛出 zod 英文 dump。
-  bind('save', (flow) => engine.save(flow))
+  bind('save', (flow) => workflows.save(flow))
+  bind('getWorkflow', async (id) => workflows.get(idSchema.parse(id)))
   bind('saveComponent', async (input) => {
     const component = componentSchema.parse({ ...input, id: randomUUID() })
     await store.change((state) => { state.components.push(component) })
@@ -271,9 +276,7 @@ function registerIpc(): void {
     if (!url || !model || !encryptedKey) throw new Error('请先在设置中填写 AI 服务地址、模型和密钥')
     const key = decryptAiKey(encryptedKey)
     const graph = await generateGraph({ url, model, key }, prompt, fetcher)
-    const workflow = { ...graph, id: randomUUID(), enabled: false }
-    await engine.save(workflow)
-    return workflow
+    return workflows.createFromGraph(graph)
   })
   bind('update', async (action) => {
     if (!app.isPackaged || update.state === 'downloading' || update.state === 'installing') return update
@@ -324,6 +327,10 @@ if (!app.requestSingleInstanceLock()) {
     powerMonitor.on('suspend', () => engine.stop())
     powerMonitor.on('resume', () => { if (!draining) engine.start(false) })
     engine.start()
+    workflowCli = startWorkflowCli(app.getPath('userData'), workflows, console.error).catch((cause: unknown) => {
+      console.error('无法启动工作流 CLI', cause)
+      return undefined
+    })
     configureUpdater()
   }).catch(() => {
     dialog.showErrorBox(appTitle, '无法打开本地数据或启动应用。')

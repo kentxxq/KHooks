@@ -368,7 +368,7 @@ async function insertNotificationTitleReference(): Promise<void> {
     </template>
     <template v-if="node.type === 'fileWrite'">
       <label for="file-content">写入内容</label>
-      <UTextarea id="file-content" :rows="4" :model-value="node.content" :maxlength="262144" class="full-width code-input" :disabled="readonly"
+      <UTextarea id="file-content" :rows="4" :model-value="node.content" class="full-width code-input" :disabled="readonly"
         @update:model-value="change(node, { content: String($event) })" />
     </template>
     <template v-if="node.type === 'llm'">

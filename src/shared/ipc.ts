@@ -52,6 +52,7 @@ export type Snapshot = {
 
 export interface Desktop {
   snapshot(): Promise<Snapshot>
+  getWorkflow(id: string): Promise<Workflow | undefined>
   save(workflow: Workflow): Promise<void>
   saveComponent(component: ComponentInput): Promise<void>
   remove(id: string): Promise<void>
