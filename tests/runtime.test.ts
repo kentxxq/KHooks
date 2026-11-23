@@ -1,41 +1,11 @@
-import { createServer, type Server, type RequestListener } from 'node:http'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
-import { Engine } from '../src/main/engine'
 import { generateGraph, probe, type Fetch } from '../src/main/network'
 import { Storage } from '../src/main/storage'
 import type { Workflow } from '../src/shared/workflow'
+import { cleanupResources, createEngine, listen, storageFile } from './helpers'
 
-const servers: Server[] = []
-const engines: Engine[] = []
-const dirs: string[] = []
-
-async function listen(handler: RequestListener): Promise<string> {
-  const server = createServer(handler)
-  servers.push(server)
-  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('测试服务未启动')
-  return 'http://127.0.0.1:' + address.port
-}
-
-async function storageFile(): Promise<string> {
-  await mkdir('debug', { recursive: true })
-  const path = await mkdtemp(resolve('debug/tmpfile-AI-storage-'))
-  dirs.push(path)
-  return join(path, 'state.json')
-}
-
-afterEach(async () => {
-  engines.forEach((engine) => engine.shutdown())
-  await Promise.all(engines.splice(0).map((engine) => engine.drain()))
-  await Promise.all(servers.splice(0).map((server) => new Promise<void>((done) => {
-    server.close(() => done())
-    server.closeAllConnections()
-  })))
-  await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })))
-})
+afterEach(cleanupResources)
 
 const site = { id: 'ipify', mode: 'text', path: '' } as const
 
@@ -94,8 +64,7 @@ it('手动运行保存可跨重启读取的 IP 基线，并保留最后一次采
   await store.open()
   let currentIp = '203.0.113.10'
   const fetcher: Fetch = async () => new Response(currentIp)
-  const engine = new Engine(store, fetcher)
-  engines.push(engine)
+  const engine = createEngine({ store, fetcher })
   const { id, enabled, ...graph } = {
     id: 'demo', enabled: false, name: '手动运行 IP 流程',
     nodes: [
@@ -111,8 +80,7 @@ it('手动运行保存可跨重启读取的 IP 基线，并保留最后一次采
 
   const reopened = new Storage(file)
   await reopened.open()
-  const restarted = new Engine(reopened, fetcher)
-  engines.push(restarted)
+  const restarted = createEngine({ store: reopened, fetcher })
   currentIp = '203.0.113.11'
   await restarted.run(id, graph)
   expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: '203.0.113.10', winnerIp: '203.0.113.11' })
@@ -151,8 +119,7 @@ it('跨重启保留基线，首次不执行，同一变化只请求一次并记�
   const file = await storageFile()
   const first = new Storage(file)
   await first.open()
-  const engine = new Engine(first, fetcher)
-  engines.push(engine)
+  const engine = createEngine({ store: first, fetcher })
   await engine.save(workflow(base))
   await engine.enable('flow', true)
   await vi.waitFor(() => expect(first.state.baselines.flow).toBe(current))
@@ -164,8 +131,7 @@ it('跨重启保留基线，首次不执行，同一变化只请求一次并记�
   current = '203.0.113.11'
   const reopened = new Storage(file)
   await reopened.open()
-  const restarted = new Engine(reopened, fetcher)
-  engines.push(restarted)
+  const restarted = createEngine({ store: reopened, fetcher })
   restarted.start()
   await vi.waitFor(() => expect(reopened.state.runs[0]?.status).toBe('success'))
   expect(reopened.state.runs[0]).toMatchObject({ edges: ['start', 'true'], steps: [
@@ -187,8 +153,7 @@ it('站点超时独立失败，HTTP 非 2xx 的节点记录错误', async () => 
   await expect(probe(site, (_, init) => fetch(base + '/hold', init), 35)).resolves.toEqual({ id: 'ipify', error: '站点请求超时' })
   const store = new Storage(await storageFile())
   await store.open()
-  const engine = new Engine(store)
-  engines.push(engine)
+  const engine = createEngine({ store })
   await engine.save({
     id: 'manual', name: '手动请求', enabled: false,
     nodes: [
@@ -233,8 +198,7 @@ it('定时流程命中否分支，停用后不再调度', async () => {
   })
   const store = new Storage(await storageFile())
   await store.open()
-  const engine = new Engine(store)
-  engines.push(engine)
+  const engine = createEngine({ store })
   const flow = workflow(base)
   flow.nodes.splice(0, 2,
     { id: 'ip', type: 'interval', x: 0, y: 0, seconds: 1 },

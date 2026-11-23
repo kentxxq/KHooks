@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createNode, evaluate, readField, renderJson, validateConnections, validateWorkflow, type Graph, type SiteConfig } from '../src/shared/workflow'
+import {
+  createNode, evaluate, graphSchema, readField, renderJson, validateConnections, validateWorkflow, zodMessage,
+  type Graph, type SiteConfig
+} from '../src/shared/workflow'
 import { parseIp, tally } from '../src/main/network'
 
 const text: SiteConfig = { id: 'ipify', mode: 'text', path: '' }
@@ -62,5 +65,86 @@ describe('图校验和字段求值', () => {
     expect(readField(values, 'start.constructor')).toBeUndefined()
     expect(renderJson({ count: '{{start.distinctIpCount}}', hint: 'IP {{start.results.0.ip}}' }, values))
       .toEqual({ count: 2, hint: 'IP 203.0.113.11' })
+  })
+})
+
+describe('配置错误摘要', () => {
+  function parse(nodes: unknown[], edges: unknown[] = []): string {
+    const result = graphSchema.safeParse({ name: '校验', nodes, edges })
+    if (result.success) throw new Error('应当校验失败')
+    return zodMessage(result.error)
+  }
+
+  it('把首个 schema 问题转成中文路径摘要', () => {
+    expect(parse([
+      { id: 'start', type: 'manual', x: 0, y: 0 },
+      { id: 'timer', type: 'interval', x: 220, y: 0, seconds: 0 }
+    ])).toBe('nodes[1].seconds 不能小于 1')
+    expect(parse([
+      { id: 'start', type: 'manual', x: 0, y: 0 },
+      { id: 'save', type: 'fileWrite', x: 220, y: 0, path: 'D:\\tmp\\a.txt', format: 'text', content: 'x'.repeat(262145) }
+    ])).toBe('nodes[1].content 不能大于 262144')
+    expect(parse([{ id: 1, type: 'manual', x: 0, y: 0 }])).toBe('nodes[0].id 类型无效')
+    expect(parse([{ id: '!!', type: 'manual', x: 0, y: 0 }])).toBe('nodes[0].id 格式无效')
+    expect(parse([{ id: 'start', type: 'manual', x: 0, y: 0, extra: 1 }])).toContain('包含不支持的字段')
+    expect(zodMessage(new Error('boom'))).toBe('格式不正确')
+  })
+})
+
+describe('运行配置校验', () => {
+  const start = createNode('manual', 'start', 0, 0)
+
+  it('拒绝条件节点的失败出口', () => {
+    const nodes = [
+      start,
+      { ...createNode('condition', 'gate', 220, 0), type: 'condition' as const, field: 'start.triggeredAt', operator: 'exists' as const, value: '' },
+      { ...createNode('data', 'first', 440, 0), type: 'data' as const, value: '1' },
+      { ...createNode('data', 'second', 440, 100), type: 'data' as const, value: '2' }
+    ]
+    const graph: Graph = {
+      name: '条件出口', nodes,
+      edges: [
+        { id: 'a', from: 'start', to: 'gate', port: 'next' },
+        { id: 'yes', from: 'gate', to: 'first', port: 'yes' },
+        { id: 'fail', from: 'gate', to: 'second', port: 'error' }
+      ]
+    }
+    expect(validateConnections(graph)).toBe('条件节点没有失败出口')
+  })
+
+  it('拒绝含点号的映射字段名', () => {
+    const graph: Graph = {
+      name: '映射字段',
+      nodes: [start, {
+        ...createNode('data', 'set', 220, 0), type: 'data' as const, value: 'null',
+        mapping: [{ key: 'a.b', value: '1', convert: 'text' as const }]
+      }],
+      edges: [{ id: 'a', from: 'start', to: 'set', port: 'next' }]
+    }
+    expect(validateWorkflow(graph)).toBe('映射字段名称不能为空、重复或包含点号')
+  })
+
+  it('按 UTF-8 字节拒绝超过 256 KB 的写入内容', () => {
+    const graph: Graph = {
+      name: '写入限制',
+      nodes: [start, {
+        ...createNode('fileWrite', 'save', 220, 0), type: 'fileWrite' as const, path: 'D:\\tmp\\a.txt', format: 'json' as const,
+        content: '{"text":"' + '中'.repeat(90000) + '"}'
+      }],
+      edges: [{ id: 'a', from: 'start', to: 'save', port: 'next' }]
+    }
+    expect(validateWorkflow(graph)).toBe('写入内容超过 256 KB')
+  })
+
+  it('拒绝 JSON 格式写入的非法内容', () => {
+    const graph: Graph = {
+      name: 'JSON 内容',
+      nodes: [start, {
+        ...createNode('fileWrite', 'save', 220, 0), type: 'fileWrite' as const, path: 'D:\\tmp\\a.json', format: 'json' as const,
+        content: 'not json'
+      }],
+      edges: [{ id: 'a', from: 'start', to: 'save', port: 'next' }]
+    }
+    expect(validateWorkflow(graph)).toBe('写入文件需要有效的 JSON')
   })
 })
