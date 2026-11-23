@@ -8,9 +8,9 @@ import { Engine } from './engine'
 import { generateGraph, probe, testAiService, type Fetch } from './network'
 import { Storage } from './storage'
 import { WindowsEvents } from './windows-events'
-import { Workflows } from './workflows'
+import { parseRunnableGraph, Workflows } from './workflows'
 import { startWorkflowCli } from './workflow-cli'
-import { componentSchema, parseHttpUrl, siteConfig, zodMessage } from '../shared/workflow'
+import { componentSchema, graphSchema, parseHttpUrl, siteConfig, zodMessage } from '../shared/workflow'
 import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc'
 import {
   appUserModelId, developmentAppUserModelId, developmentProductName, productName, windowsDevelopmentRuntimePrefix
@@ -47,17 +47,19 @@ let workflowCli: Promise<(() => Promise<void>) | undefined> | undefined
 let update: Update = { state: app.isPackaged ? 'idle' : 'disabled' }
 const store = new Storage(join(app.getPath('userData'), 'khooks.json'), notify, console.error)
 const fetcher: Fetch = (url, init) => net.fetch(String(url), init)
+function getAiOptions() {
+  const { url, model, encryptedKey } = store.state.ai
+  if (!url || !model || !encryptedKey) throw new Error('请先在设置中填写 AI 服务地址、模型和密钥')
+  return { url, model, key: decryptAiKey(encryptedKey) }
+}
+
 const engine = new Engine(store, fetcher, console.error, (title, body) => {
   if (windows && development && !brandedDevelopment) {
     throw new Error('请通过项目的开发命令启动 KHooks 后再发送 Windows 通知')
   }
   if (!Notification.isSupported()) throw new Error('系统通知不可用')
   new Notification({ title, body, icon: iconPath }).show()
-}, () => {
-  const { url, model, encryptedKey } = store.state.ai
-  if (!url || !model || !encryptedKey) throw new Error('请先在设置中填写 AI 服务地址、模型和密钥')
-  return { url, model, key: decryptAiKey(encryptedKey) }
-}, windows ? new WindowsEvents(join(
+}, getAiOptions, windows ? new WindowsEvents(join(
   development ? join(app.getAppPath(), 'debug', 'tmpfile-AI-windows-events') : join(process.resourcesPath, 'windows-events'),
   'WindowsEvents.exe'
 ), console.error) : undefined)
@@ -199,6 +201,8 @@ function registerIpc(): void {
     aiUrl: z.string().max(1000), aiModel: z.string().trim().max(200), aiKey: z.string().max(4000).optional()
   })
   const settingsInput = aiInput.extend({ login: z.boolean() })
+  const aiPrompt = z.string().trim().min(1).max(8000)
+  const aiDraft = graphSchema.extend({ name: z.string().max(100) })
   function bind<K extends Invocation>(channel: K, handler: Desktop[K]): void {
     ipcMain.handle('khooks:' + channel, (event, ...args: Parameters<Desktop[K]>) => {
       if (event.sender !== window?.webContents || event.senderFrame !== window?.webContents.mainFrame || draining) {
@@ -271,12 +275,14 @@ function registerIpc(): void {
     await testAiService({ url, model: aiModel, key }, fetcher)
   })
   bind('generate', async (value) => {
-    const prompt = z.string().trim().min(1).max(8000).parse(value)
-    const { url, model, encryptedKey } = store.state.ai
-    if (!url || !model || !encryptedKey) throw new Error('请先在设置中填写 AI 服务地址、模型和密钥')
-    const key = decryptAiKey(encryptedKey)
-    const graph = await generateGraph({ url, model, key }, prompt, fetcher)
+    const graph = await generateGraph(getAiOptions(), aiPrompt.parse(value), fetcher)
     return workflows.createFromGraph(graph)
+  })
+  bind('revise', async (value, draft) => {
+    const input = aiDraft.safeParse(draft)
+    if (!input.success) throw new Error('当前草稿格式无效：' + zodMessage(input.error))
+    const graph = await generateGraph(getAiOptions(), aiPrompt.parse(value), fetcher, input.data)
+    return parseRunnableGraph(graph)
   })
   bind('update', async (action) => {
     if (!app.isPackaged || update.state === 'downloading' || update.state === 'installing') return update

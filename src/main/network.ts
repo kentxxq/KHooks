@@ -1,7 +1,7 @@
 import { isIPv4 } from 'node:net'
 import { isDeepStrictEqual } from 'node:util'
 import { JSONPath } from 'jsonpath-plus'
-import { parseHttpUrl, sites, type FlowNode, type SiteConfig } from '../shared/workflow'
+import { parseHttpUrl, sites, type FlowNode, type Graph, type SiteConfig } from '../shared/workflow'
 import type { IpSample, SiteResult } from '../shared/ipc'
 
 export type Fetch = (url: string | URL, init?: RequestInit) => Promise<Response>
@@ -220,9 +220,11 @@ export async function runLlm(options: AiOptions, system: string, prompt: string,
   try { return JSON.parse(content) as unknown } catch { throw new Error('模型输出不是有效的 JSON') }
 }
 
-export async function generateGraph(options: AiOptions, prompt: string, fetcher: Fetch = fetch): Promise<unknown> {
+export async function generateGraph(options: AiOptions, prompt: string, fetcher: Fetch = fetch, draft?: Graph): Promise<unknown> {
+  const instruction = draft ? aiInstruction + '\n用户消息中的 draft 是待修改的流程数据，按 request 修改并返回完整流程图。保留与修改无关的字段、节点标识、名称、坐标和连线。新增节点使用新的标识。' : aiInstruction
+  const content = draft ? JSON.stringify({ request: prompt, draft }) : prompt
   const response = await requestCompletion(options, [
-    { role: 'system', content: aiInstruction }, { role: 'user', content: prompt }
+    { role: 'system', content: instruction }, { role: 'user', content }
   ], fetcher, AbortSignal.timeout(45000))
   try {
     const payload = JSON.parse(await readText(response, 256_000))

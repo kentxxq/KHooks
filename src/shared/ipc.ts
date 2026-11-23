@@ -64,6 +64,7 @@ export interface Desktop {
   testAi(settings: { aiUrl: string; aiModel: string; aiKey?: string }): Promise<void>
   setTheme(theme: Theme): Promise<void>
   generate(prompt: string): Promise<Workflow>
+  revise(prompt: string, draft: Graph): Promise<Graph>
   update(action: 'check' | 'apply'): Promise<Update>
   subscribe(callback: () => void): () => void
 }

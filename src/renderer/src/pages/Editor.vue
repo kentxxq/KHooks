@@ -20,8 +20,14 @@ const draft = ref<Workflow>()
 const selection = ref<{ nodes: string[]; edges: string[] }>({ nodes: [], edges: [] })
 const previewType = ref<FlowNode['type']>()
 const draggedType = ref<FlowNode['type']>()
-const pending = ref<'save' | 'enable' | 'disable' | 'run' | 'component' | 'reload'>()
+const pending = ref<'save' | 'enable' | 'disable' | 'run' | 'component' | 'reload' | 'revise'>()
 const componentDraft = ref<{ name: string; node: FlowNode }>()
+const aiOpen = ref(false)
+const aiPrompt = ref('')
+const aiReady = computed(() => {
+  const settings = store.data?.settings
+  return Boolean(settings?.aiUrl && settings.aiModel && settings.hasAiKey)
+})
 const busy = computed(() => pending.value !== undefined)
 const nameError = ref('')
 const dirty = computed(() => Boolean(draft.value && saved.value && JSON.stringify(draft.value) !== JSON.stringify(saved.value)))
@@ -216,6 +222,30 @@ async function reloadWorkflow(): Promise<void> {
     pending.value = undefined
   }
 }
+
+async function reviseWorkflow(): Promise<void> {
+  const current = draft.value
+  if (!current || busy.value || !aiReady.value || !aiPrompt.value.trim()) return
+  const { name, nodes, edges } = current
+  pending.value = 'revise'
+  try {
+    const graph = await desktop.revise(aiPrompt.value, copy({ name, nodes, edges }))
+    if (draft.value?.id !== current.id) return
+    if (draft.value !== current && (draft.value.name !== name ||
+      JSON.stringify(draft.value.nodes) !== JSON.stringify(nodes) || JSON.stringify(draft.value.edges) !== JSON.stringify(edges))) {
+      throw new Error('流程已更新，请重新提交修改要求')
+    }
+    draft.value = { ...draft.value, ...graph }
+    nameError.value = ''
+    select('')
+    aiOpen.value = false
+    aiPrompt.value = ''
+  } catch (cause) {
+    toast.add({ title: errorMessage(cause), color: 'error' })
+  } finally {
+    pending.value = undefined
+  }
+}
 </script>
 
 <template>
@@ -237,6 +267,8 @@ async function reloadWorkflow(): Promise<void> {
         </select>
       </div>
       <div class="actions">
+        <UButton color="neutral" variant="outline" icon="i-lucide-sparkles" :disabled="busy"
+          @click="aiOpen = true">AI 修改</UButton>
         <UButton color="neutral" variant="outline" icon="i-lucide-play" :disabled="busy || !canRun"
           :loading="pending === 'run'" @click="perform('run')">手动运行</UButton>
         <UButton color="neutral" variant="outline" icon="i-lucide-history" :to="{ name: 'runs', query: { flow: draft.id } }">运行记录</UButton>
@@ -340,6 +372,22 @@ async function reloadWorkflow(): Promise<void> {
         </div>
       </aside>
     </div>
+    <UModal :open="aiOpen" title="AI 修改流程" :close="!busy" :dismissible="!busy"
+      @update:open="!busy && (aiOpen = $event)">
+      <template #body>
+        <form id="revise-workflow-form" class="fields" @submit.prevent="reviseWorkflow">
+          <label for="revise-workflow-prompt">修改要求</label>
+          <UTextarea id="revise-workflow-prompt" v-model="aiPrompt" :rows="4" :maxlength="8000"
+            :disabled="busy" class="full-width" />
+        </form>
+      </template>
+      <template #footer>
+        <RouterLink v-if="!aiReady" to="/settings" class="text-link">配置 AI 服务</RouterLink>
+        <UButton color="neutral" variant="outline" :disabled="busy" @click="aiOpen = false">取消</UButton>
+        <UButton type="submit" form="revise-workflow-form" :disabled="busy || !aiReady || !aiPrompt.trim()"
+          :loading="pending === 'revise'">发送草稿给 AI 修改</UButton>
+      </template>
+    </UModal>
     <UModal :open="Boolean(componentDraft)" title="另存为组件" :close="!busy" :dismissible="!busy"
       @update:open="!$event && closeComponentDialog()">
       <template #body>

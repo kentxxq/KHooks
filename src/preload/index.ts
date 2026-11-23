@@ -19,6 +19,7 @@ const desktop: Desktop = {
   testAi: (settings) => invoke('testAi', settings),
   setTheme: (theme) => invoke('setTheme', theme),
   generate: (prompt) => invoke('generate', prompt),
+  revise: (prompt, draft) => invoke('revise', prompt, draft),
   update: (action) => invoke('update', action),
   subscribe: (callback) => {
     const listener = () => callback()

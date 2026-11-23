@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import type { Engine } from './engine'
 import type { Storage } from './storage'
-import { graphSchema, validateWorkflow, zodMessage, type Workflow } from '../shared/workflow'
+import { graphSchema, validateWorkflow, zodMessage, type Graph, type Workflow } from '../shared/workflow'
 
 export class InvalidWorkflow extends Error {}
+
+export function parseRunnableGraph(input: unknown): Graph {
+  const result = graphSchema.safeParse(input)
+  if (!result.success) throw new InvalidWorkflow('流程格式无效：' + zodMessage(result.error))
+  const error = validateWorkflow(result.data)
+  if (error) throw new InvalidWorkflow('流程未通过校验：' + error)
+  return result.data
+}
 
 export class WorkflowEnableError extends Error {
   constructor(readonly workflowId: string, cause: unknown) {
@@ -23,12 +31,7 @@ export class Workflows {
   }
 
   async createFromGraph(input: unknown, enable = false): Promise<Workflow> {
-    const result = graphSchema.safeParse(input)
-    if (!result.success) throw new InvalidWorkflow('流程格式无效：' + zodMessage(result.error))
-    const error = validateWorkflow(result.data)
-    if (error) throw new InvalidWorkflow('流程未通过校验：' + error)
-
-    const flow: Workflow = { ...result.data, id: randomUUID(), enabled: false }
+    const flow: Workflow = { ...parseRunnableGraph(input), id: randomUUID(), enabled: false }
     await this.save(flow)
     if (enable) {
       try {
