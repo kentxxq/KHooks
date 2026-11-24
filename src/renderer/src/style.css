@@ -185,11 +185,19 @@ h3 { font-size: 13px; font-weight: 650; }
 .more-field { display: grid; gap: 6px; padding: 2px 2px 8px; border-bottom: 1px solid var(--line); }
 .more-field label { font-size: 12px; color: var(--dim); }
 
-/* 节点图标颜色体系 */
+/* 节点图标颜色体系：触发器（绿）/ 逻辑（紫）/ 操作（蓝） */
 .node-icon { width: 30px; height: 30px; font-size: 16px; border-radius: 8px; display: grid; place-items: center; background: var(--ui-bg-accented); color: var(--ui-text-toned); flex: none; }
-.node-icon.ip, .node-icon.manual, .node-icon.interval { background: var(--success-bg); color: var(--success); }
-.node-icon.condition { background: light-dark(var(--color-violet-50), var(--color-violet-950)); color: light-dark(var(--color-violet-700), var(--color-violet-300)); }
-.node-icon.http { background: light-dark(var(--color-blue-50), var(--color-blue-950)); color: light-dark(var(--color-blue-700), var(--color-blue-300)); }
+.node-icon.manual, .node-icon.interval, .node-icon.ip, .node-icon.fileWatch, .node-icon.httpPoll, .node-icon.system {
+  background: var(--success-bg); color: var(--success);
+}
+.node-icon.condition, .node-icon.delay, .node-icon.data {
+  background: light-dark(var(--color-violet-50), var(--color-violet-950));
+  color: light-dark(var(--color-violet-700), var(--color-violet-300));
+}
+.node-icon.http, .node-icon.notification, .node-icon.fileRead, .node-icon.fileWrite, .node-icon.llm {
+  background: light-dark(var(--color-blue-50), var(--color-blue-950));
+  color: light-dark(var(--color-blue-700), var(--color-blue-300));
+}
 
 /* VueFlow 画布与结构化节点卡片 */
 .canvas .vue-flow {

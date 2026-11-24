@@ -38,7 +38,8 @@ const hasTrigger = computed(() => draft.value?.nodes.some(isTrigger))
 const canRun = computed(() => saved.value?.enabled ? saved.value.nodes.some(isTrigger) : hasTrigger.value)
 const libraryGroups = [
   { label: '触发器', types: ['manual', 'interval', 'ip', 'fileWatch', 'httpPoll', 'system'] },
-  { label: '逻辑与执行', types: ['condition', 'http', 'delay', 'data', 'notification', 'fileRead', 'fileWrite', 'llm'] }
+  { label: '逻辑', types: ['condition', 'delay', 'data'] },
+  { label: '操作', types: ['http', 'notification', 'fileRead', 'fileWrite', 'llm'] }
 ] as const
 const nodeUses: Partial<Record<FlowNode['type'], string>> = {
   manual: '点击「手动运行」时执行流程。',
