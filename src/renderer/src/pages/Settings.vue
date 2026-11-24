@@ -8,6 +8,8 @@ import { desktop, errorMessage, useDesktop } from '../model'
 
 const store = useDesktop()
 const toast = useToast()
+const releasesUrl: string = releaseLinks.releases
+const changelogUrl: string = releaseLinks.changelog
 const initial = store.data?.settings
 const login = ref(initial?.login ?? false)
 const aiUrl = ref(initial?.aiUrl ?? '')
@@ -353,10 +355,10 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
         <div class="settings-row">
           <span class="settings-key muted">相关链接</span>
           <div class="settings-control settings-control-end actions">
-            <a :href="releaseLinks.releases" class="text-link inline-link" @click.prevent="openLink('releases')">
+            <a :href="releasesUrl" class="text-link inline-link" @click.prevent="openLink('releases')">
               Release 页面 <UIcon name="i-lucide-external-link" />
             </a>
-            <a :href="releaseLinks.changelog" class="text-link inline-link" @click.prevent="openLink('changelog')">
+            <a :href="changelogUrl" class="text-link inline-link" @click.prevent="openLink('changelog')">
               CHANGELOG <UIcon name="i-lucide-external-link" />
             </a>
           </div>
