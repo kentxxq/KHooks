@@ -60,6 +60,7 @@ h3 { font-size: 13px; font-weight: 650; }
   box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
 }
 .navigation .active span { color: var(--accent); }
+.navigation .nav-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent); flex: none; }
 
 /* 通用页面容器与卡片 */
 .page { max-width: 1240px; margin: 0 auto; padding: 28px 32px; }
@@ -293,12 +294,7 @@ h3 { font-size: 13px; font-weight: 650; }
 .sample-row code { text-align: right; overflow-wrap: anywhere; }
 .sample-row button { cursor: pointer; }
 
-/* 运行结果与设置页 */
+/* 运行结果 */
 .step-row { display: flex; gap: 8px; align-items: center; padding: 8px; border-radius: 6px; width: 100%; }
 .step-row:hover, .step-row.chosen { background: var(--ui-bg-elevated); }
 .result-code { margin-top: 10px; padding: 10px; border-radius: 7px; background: var(--ui-bg-muted); overflow: auto; font-size: 12px; }
-.settings-page { max-width: 780px; }
-.appearance-select { width: 128px; }
-.settings-section { padding: 20px; margin-bottom: 14px; }
-.settings-section .section-row { margin-top: 14px; }
-.settings-section .actions { margin-top: 14px; }

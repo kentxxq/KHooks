@@ -38,8 +38,9 @@ export type Run = {
 }
 
 export type Theme = 'light' | 'dark'
-export type Settings = { login: boolean; aiUrl: string; aiModel: string; hasAiKey: boolean; theme: Theme }
-export type Update = { state: 'disabled' | 'idle' | 'checking' | 'available' | 'current' | 'unpublished' | 'downloading' | 'installing' | 'error'; version?: string; percent?: number; error?: string }
+export type ExternalLink = 'releases' | 'changelog'
+export type Settings = { login: boolean; autoCheckUpdate: boolean; aiUrl: string; aiModel: string; hasAiKey: boolean; theme: Theme }
+export type Update = { state: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'current' | 'unpublished' | 'installing' | 'error'; version?: string; percent?: number; error?: string }
 export type Snapshot = {
   workflows: Workflow[]
   components: NodeComponent[]
@@ -60,12 +61,15 @@ export interface Desktop {
   run(id: string, draft?: Graph): Promise<void>
   pickPath(target: 'file' | 'directory' | 'write'): Promise<string | undefined>
   probe(site: SiteConfig): Promise<SiteResult>
-  settings(settings: Omit<Settings, 'hasAiKey' | 'theme'> & { aiKey?: string }): Promise<void>
+  settings(settings: Omit<Settings, 'hasAiKey' | 'theme' | 'autoCheckUpdate'> & { aiKey?: string }): Promise<void>
   testAi(settings: { aiUrl: string; aiModel: string; aiKey?: string }): Promise<void>
   setTheme(theme: Theme): Promise<void>
+  setAutoCheckUpdate(enabled: boolean): Promise<void>
   generate(prompt: string): Promise<Workflow>
   revise(prompt: string, draft: Graph): Promise<Graph>
   update(action: 'check' | 'apply'): Promise<Update>
+  openExternal(target: ExternalLink): Promise<void>
   subscribe(callback: () => void): () => void
+  onNavigate(callback: (path: string) => void): () => void
 }
-export type Invocation = Exclude<keyof Desktop, 'subscribe'>
+export type Invocation = Exclude<keyof Desktop, 'subscribe' | 'onNavigate'>

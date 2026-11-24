@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import productionIcon from '../../../resources/icon.png'
 import developmentIcon from '../../../resources/icon-dev.png'
 import { desktop, useDesktop } from './model'
 
 const appIcon = import.meta.env.DEV ? developmentIcon : productionIcon
 const route = useRoute()
+const router = useRouter()
 const store = useDesktop()
 const navItems = [
   { to: '/', label: '流程', icon: 'i-lucide-workflow', match: ['workflows', 'editor'] },
@@ -20,12 +21,17 @@ watch(() => store.data?.settings.theme, (theme) => {
   document.documentElement.classList.toggle('light', !dark)
 }, { immediate: true, flush: 'sync' })
 let unsubscribe: (() => void) | undefined
+let unlistenNavigate: (() => void) | undefined
 
 onMounted(() => {
   unsubscribe = desktop.subscribe(store.refresh)
+  unlistenNavigate = desktop.onNavigate((path) => { void router.push(path) })
   void store.refresh()
 })
-onUnmounted(() => unsubscribe?.())
+onUnmounted(() => {
+  unsubscribe?.()
+  unlistenNavigate?.()
+})
 </script>
 
 <template>
@@ -40,6 +46,7 @@ onUnmounted(() => unsubscribe?.())
           <RouterLink v-for="item in navItems" :key="item.to" :to="item.to"
             :class="{ active: (item.match as readonly string[]).includes(String(route.name ?? '')) }">
             <UIcon :name="item.icon" /> {{ item.label }}
+            <span v-if="item.to === '/settings' && store.data?.update.state === 'downloaded'" class="nav-dot" aria-label="有可安装的新版本" />
           </RouterLink>
         </nav>
         <div class="topbar-spacer" />

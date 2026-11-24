@@ -18,13 +18,20 @@ const desktop: Desktop = {
   settings: (settings) => invoke('settings', settings),
   testAi: (settings) => invoke('testAi', settings),
   setTheme: (theme) => invoke('setTheme', theme),
+  setAutoCheckUpdate: (enabled) => invoke('setAutoCheckUpdate', enabled),
   generate: (prompt) => invoke('generate', prompt),
   revise: (prompt, draft) => invoke('revise', prompt, draft),
   update: (action) => invoke('update', action),
+  openExternal: (target) => invoke('openExternal', target),
   subscribe: (callback) => {
     const listener = () => callback()
     ipcRenderer.on('khooks:changed', listener)
     return () => ipcRenderer.removeListener('khooks:changed', listener)
+  },
+  onNavigate: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, path: string) => callback(path)
+    ipcRenderer.on('khooks:navigate', listener)
+    return () => ipcRenderer.removeListener('khooks:navigate', listener)
   }
 }
 contextBridge.exposeInMainWorld('khooks', desktop)

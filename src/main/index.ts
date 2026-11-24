@@ -13,7 +13,7 @@ import { startWorkflowCli } from './workflow-cli'
 import { componentSchema, graphSchema, parseHttpUrl, siteConfig, zodMessage } from '../shared/workflow'
 import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc'
 import {
-  appUserModelId, developmentAppUserModelId, developmentProductName, productName, windowsDevelopmentRuntimePrefix
+  appUserModelId, developmentAppUserModelId, developmentProductName, productName, releaseLinks, windowsDevelopmentRuntimePrefix
 } from '../shared/app-identity'
 import productionIconPath from '../../resources/icon.png?asset'
 import developmentIconPath from '../../resources/icon-dev.png?asset'
@@ -50,6 +50,12 @@ let quitting = false
 let draining = false
 let workflowCli: Promise<(() => Promise<void>) | undefined> | undefined
 let update: Update = { state: app.isPackaged ? 'idle' : 'disabled' }
+const updateCheckIntervalMs = 60 * 60 * 1000
+let updateTimer: ReturnType<typeof setInterval> | undefined
+let updateProgressNotifiedAt = 0
+let notifiedUpdateVersion: string | undefined
+let pendingInstall = false
+let backgroundUpdate = false
 const store = new Storage(join(app.getPath('userData'), 'khooks.json'), notify, console.error)
 const fetcher: Fetch = (url, init) => net.fetch(String(url), init)
 function getAiOptions() {
@@ -115,6 +121,7 @@ function getSettings(): Settings {
   const ai = store.state.ai
   return {
     login: app.isPackaged && app.getLoginItemSettings({ args: loginArgs }).openAtLogin,
+    autoCheckUpdate: store.state.autoCheckUpdate,
     aiUrl: ai.url, aiModel: ai.model, hasAiKey: Boolean(ai.encryptedKey), theme: store.state.theme
   }
 }
@@ -124,16 +131,18 @@ function decryptAiKey(encryptedKey: string): string {
   return safeStorage.decryptString(Buffer.from(encryptedKey, 'base64'))
 }
 
-function openWindow(): void {
+function openWindow(routePath?: string): void {
   if (window) {
+    if (window.isMinimized()) window.restore()
     window.show()
     window.focus()
+    if (routePath && !window.isDestroyed()) window.webContents.send('khooks:navigate', routePath)
     return
   }
-  createWindow(true)
+  createWindow(true, routePath)
 }
 
-function createWindow(show: boolean): void {
+function createWindow(show: boolean, routePath?: string): void {
   const main = new BrowserWindow({
     title: appTitle,
     width: 1440, height: 900, minWidth: 980, minHeight: 660,
@@ -148,6 +157,11 @@ function createWindow(show: boolean): void {
   window = main
   main.on('page-title-updated', (event) => event.preventDefault())
   if (show) main.once('ready-to-show', () => main.show())
+  if (routePath) {
+    main.webContents.once('did-finish-load', () => {
+      if (!main.isDestroyed()) main.webContents.send('khooks:navigate', routePath)
+    })
+  }
   main.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   main.webContents.on('will-navigate', (event) => event.preventDefault())
   main.on('close', (event) => {
@@ -164,6 +178,10 @@ function createWindow(show: boolean): void {
 async function quit(): Promise<void> {
   if (draining) return
   draining = true
+  if (updateTimer) {
+    clearInterval(updateTimer)
+    updateTimer = undefined
+  }
   await (await workflowCli)?.().catch(console.error)
   engine.shutdown()
   await engine.drain()
@@ -172,7 +190,33 @@ async function quit(): Promise<void> {
   app.quit()
 }
 
+function installUpdate(version?: string): void {
+  pendingInstall = false
+  setUpdate({ state: 'installing', version })
+  // 关闭静默参数，使用 oneClick 原生安装进度条窗口并自动重启新版，避免退出后长时间无画面。
+  autoUpdater.quitAndInstall(false, true)
+}
+
+function notifyUpdateDownloaded(version: string): void {
+  if (notifiedUpdateVersion === version || !Notification.isSupported()) return
+  notifiedUpdateVersion = version
+  const notification = new Notification({
+    title: `发现新版本 v${version}`,
+    body: '更新已下载完成，点击前往设置页立即更新',
+    icon: iconPath
+  })
+  notification.on('click', () => openWindow('/settings'))
+  notification.show()
+}
+
 function reportUpdateError(cause: Error & { code?: string }): void {
+  pendingInstall = false
+  if (backgroundUpdate) {
+    backgroundUpdate = false
+    console.error('后台检查或预下载更新失败', cause)
+    if (update.state !== 'downloaded') setUpdate({ state: 'idle' })
+    return
+  }
   if (cause.code === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' ||
       (cause.code === 'ERR_XML_MISSED_ELEMENT' && cause.message === 'No published versions on GitHub')) {
     setUpdate({ state: 'unpublished' })
@@ -189,17 +233,65 @@ function reportUpdateError(cause: Error & { code?: string }): void {
   }
 }
 
+function runBackgroundUpdateCheck(): void {
+  if (!app.isPackaged || !store.state.autoCheckUpdate || draining) return
+  if (update.state === 'checking' || update.state === 'downloading' ||
+      update.state === 'downloaded' || update.state === 'installing') {
+    return
+  }
+  backgroundUpdate = true
+  autoUpdater.autoDownload = true
+  void autoUpdater.checkForUpdates().catch(() => {})
+}
+
+function syncUpdateSchedule(checkNow = false): void {
+  if (!app.isPackaged) return
+  if (updateTimer) {
+    clearInterval(updateTimer)
+    updateTimer = undefined
+  }
+  autoUpdater.autoDownload = store.state.autoCheckUpdate
+  if (!store.state.autoCheckUpdate) return
+  updateTimer = setInterval(runBackgroundUpdateCheck, updateCheckIntervalMs)
+  if (checkNow) runBackgroundUpdateCheck()
+}
+
 function configureUpdater(): void {
   if (!app.isPackaged) return
-  autoUpdater.autoDownload = false
+  autoUpdater.autoDownload = store.state.autoCheckUpdate
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.autoRunAppAfterInstall = true
   autoUpdater.allowPrerelease = false
   autoUpdater.on('checking-for-update', () => setUpdate({ state: 'checking' }))
-  autoUpdater.on('update-available', (info) => setUpdate({ state: 'available', version: info.version }))
-  autoUpdater.on('update-not-available', () => setUpdate({ state: 'current' }))
-  autoUpdater.on('download-progress', (progress) => setUpdate({ ...update, state: 'downloading', percent: progress.percent }))
+  autoUpdater.on('update-available', (info) => {
+    updateProgressNotifiedAt = 0
+    if (autoUpdater.autoDownload) {
+      setUpdate({ state: 'downloading', version: info.version, percent: 0 })
+    } else {
+      setUpdate({ state: 'available', version: info.version })
+    }
+  })
+  autoUpdater.on('update-not-available', () => {
+    backgroundUpdate = false
+    setUpdate({ state: 'current' })
+  })
+  autoUpdater.on('download-progress', (progress) => {
+    const now = Date.now()
+    if (progress.percent < 100 && now - updateProgressNotifiedAt < 250) return
+    updateProgressNotifiedAt = now
+    setUpdate({ ...update, state: 'downloading', percent: progress.percent })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    backgroundUpdate = false
+    setUpdate({ state: 'downloaded', version: info.version, percent: 100 })
+    if (pendingInstall && !draining) {
+      installUpdate(info.version)
+      return
+    }
+    notifyUpdateDownloaded(info.version)
+  })
   autoUpdater.on('error', reportUpdateError)
-  void autoUpdater.checkForUpdates().catch(() => {})
+  syncUpdateSchedule(true)
 }
 
 function registerIpc(): void {
@@ -272,6 +364,12 @@ function registerIpc(): void {
     window?.setBackgroundColor(windowBackground[store.state.theme])
     if (windows) window?.setTitleBarOverlay(titleBarOverlay(store.state.theme))
   })
+  bind('setAutoCheckUpdate', async (value) => {
+    const enabled = z.boolean().parse(value)
+    await store.change((state) => { state.autoCheckUpdate = enabled })
+    syncUpdateSchedule(enabled)
+    notify()
+  })
   bind('testAi', async (input) => {
     const { aiUrl, aiModel, aiKey } = aiInput.parse(input)
     if (!aiUrl.trim() || !aiModel) throw new Error('请填写 AI 服务地址和模型')
@@ -293,23 +391,44 @@ function registerIpc(): void {
     return parseRunnableGraph(graph)
   })
   bind('update', async (action) => {
-    if (!app.isPackaged || update.state === 'downloading' || update.state === 'installing') return update
+    if (!app.isPackaged || update.state === 'installing') return update
     switch (action) {
       case 'check':
+        if (update.state === 'downloaded' || update.state === 'downloading') return update
+        backgroundUpdate = false
+        autoUpdater.autoDownload = store.state.autoCheckUpdate
         await autoUpdater.checkForUpdates().catch(() => {})
         break
       case 'apply': {
+        if (update.state === 'downloaded') {
+          installUpdate(update.version)
+          return update
+        }
+        if (update.state === 'downloading') {
+          backgroundUpdate = false
+          pendingInstall = true
+          return update
+        }
         if (update.state !== 'available') return update
         const version = update.version
+        backgroundUpdate = false
+        pendingInstall = true
+        updateProgressNotifiedAt = 0
         setUpdate({ ...update, state: 'downloading', percent: 0 })
         const files = await autoUpdater.downloadUpdate().catch(() => undefined)
-        if (!files?.length || draining) return update
-        setUpdate({ state: 'installing', version })
-        autoUpdater.quitAndInstall(true, true)
+        if (!files?.length || draining) {
+          pendingInstall = false
+          return update
+        }
+        if (pendingInstall) installUpdate(version)
         break
       }
     }
     return update
+  })
+  bind('openExternal', async (target) => {
+    const key = z.enum(['releases', 'changelog']).parse(target)
+    await shell.openExternal(releaseLinks[key])
   })
 }
 
@@ -332,11 +451,11 @@ if (!app.requestSingleInstanceLock()) {
     tray = new Tray(nativeImage.createFromPath(iconPath))
     tray.setToolTip(appTitle)
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: '打开', click: openWindow },
+      { label: '打开', click: () => openWindow() },
       { type: 'separator' },
       { label: '退出', click: () => { void quit() } }
     ]))
-    tray.on('double-click', openWindow)
+    tray.on('double-click', () => openWindow())
     if (!process.argv.includes('--hidden')) openWindow()
     powerMonitor.on('suspend', () => engine.stop())
     powerMonitor.on('resume', () => { if (!draining) engine.start(false) })

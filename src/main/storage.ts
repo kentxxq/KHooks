@@ -14,6 +14,7 @@ export type QueuedTask = {
 export type State = {
   version: 2
   theme: Theme
+  autoCheckUpdate: boolean
   workflows: Workflow[]
   components: NodeComponent[]
   baselines: Record<string, string>
@@ -43,7 +44,7 @@ function migrateTemplate(value: string): string {
 
 export class Storage {
   state: State = {
-    version: 2, theme: 'light', workflows: [], components: [], baselines: {}, samples: {}, runs: [],
+    version: 2, theme: 'light', autoCheckUpdate: true, workflows: [], components: [], baselines: {}, samples: {}, runs: [],
     pollBaselines: {}, clockDates: {}, queue: [],
     ai: { url: '', model: '', encryptedKey: '' }
   }
@@ -135,6 +136,7 @@ export class Storage {
       }
     }
     state.theme = state.theme === 'dark' ? 'dark' : 'light'
+    state.autoCheckUpdate = typeof loaded.autoCheckUpdate === 'boolean' ? loaded.autoCheckUpdate : true
     this.state = state
     if (migrated || dropped || state.queue.some((task) => task.runId) || state.runs.some((run) => run.status === 'running')) {
       await this.change((draft) => {
