@@ -4,7 +4,9 @@ import { useToast } from '@nuxt/ui/composables/useToast'
 import type { Desktop, Run, Snapshot } from '../../shared/ipc'
 
 declare global {
-  interface Window { khooks: Desktop }
+  interface Window {
+    khooks: Desktop
+  }
 }
 
 export const desktop = window.khooks
@@ -27,14 +29,20 @@ export const useDesktop = defineStore('desktop', () => {
 })
 
 export const runLabels: Record<Run['status'], string> = {
-  running: '执行中', success: '成功', failed: '失败', interrupted: '应用退出中断', cancelled: '被新事件中断'
+  running: '执行中',
+  success: '成功',
+  failed: '失败',
+  interrupted: '应用退出中断',
+  cancelled: '被新事件中断'
 }
 
 export { nodeIcons } from './node-icons'
 export const nodeDragType = 'application/x-khooks-node'
 
 export function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message.replace(/^Error invoking remote method '[^']+': Error: /, '') : String(cause)
+  return cause instanceof Error
+    ? cause.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
+    : String(cause)
 }
 
 export function dateTime(value?: string | null): string {

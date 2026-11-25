@@ -10,13 +10,22 @@ const host = '127.0.0.1'
 const maxBodyBytes = 4 * 1024 * 1024
 
 class RequestError extends Error {
-  constructor(readonly status: number, message: string) { super(message) }
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message)
+  }
 }
 
 function json(response: ServerResponse, status: number, value: unknown): void {
-  response.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'close'
-  }).end(JSON.stringify(value))
+  response
+    .writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Connection: 'close'
+    })
+    .end(JSON.stringify(value))
 }
 
 async function readGraph(request: IncomingMessage): Promise<unknown> {
@@ -36,7 +45,9 @@ async function readGraph(request: IncomingMessage): Promise<unknown> {
 }
 
 export async function startWorkflowCli(
-  profile: string, workflows: Workflows, report: (cause: unknown) => void
+  profile: string,
+  workflows: Workflows,
+  report: (cause: unknown) => void
 ): Promise<() => Promise<void>> {
   const token = randomBytes(32).toString('hex')
   const expected = Buffer.from('Bearer ' + token)
@@ -62,18 +73,22 @@ export async function startWorkflowCli(
     throw new RequestError(404, 'CLI 操作不存在')
   }
 
-  const server = createServer({ requestTimeout: 5000, headersTimeout: 5000, connectionsCheckingInterval: 1000 }, (request, response) => {
-    void handle(request, response).catch((cause: unknown) => {
-      if (response.destroyed) return
-      if (cause instanceof RequestError) json(response, cause.status, { error: cause.message })
-      else if (cause instanceof InvalidWorkflow) json(response, 400, { error: cause.message })
-      else if (cause instanceof WorkflowEnableError) json(response, 409, { error: cause.message, workflowId: cause.workflowId })
-      else {
-        report(cause)
-        json(response, 500, { error: '无法处理工作流请求' })
-      }
-    })
-  })
+  const server = createServer(
+    { requestTimeout: 5000, headersTimeout: 5000, connectionsCheckingInterval: 1000 },
+    (request, response) => {
+      void handle(request, response).catch((cause: unknown) => {
+        if (response.destroyed) return
+        if (cause instanceof RequestError) json(response, cause.status, { error: cause.message })
+        else if (cause instanceof InvalidWorkflow) json(response, 400, { error: cause.message })
+        else if (cause instanceof WorkflowEnableError)
+          json(response, 409, { error: cause.message, workflowId: cause.workflowId })
+        else {
+          report(cause)
+          json(response, 500, { error: '无法处理工作流请求' })
+        }
+      })
+    }
+  )
   const listening = once(server, 'listening')
   server.listen(0, host)
   try {

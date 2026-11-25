@@ -1,10 +1,17 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { Run } from '../src/shared/ipc'
 import type { FlowEdge, FlowNode } from '../src/shared/workflow'
 import {
-  cleanupResources, createEngine, createStore, fakeSystem, listen, tempDir, waitForRun, workflow
+  cleanupResources,
+  createEngine,
+  createStore,
+  fakeSystem,
+  listen,
+  tempDir,
+  waitForRun,
+  workflow
 } from './helpers'
 
 afterEach(async () => {
@@ -31,9 +38,26 @@ describe('触发器与节点的组合链路', () => {
     const { store } = await createStore()
     const engine = createEngine({ store })
     const nodes: FlowNode[] = [
-      { id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory', events: ['changed'] },
+      {
+        id: 'watch',
+        type: 'fileWatch',
+        x: 0,
+        y: 0,
+        path: dir,
+        target: 'directory',
+        events: ['changed']
+      },
       { id: 'read', type: 'fileRead', x: 230, y: 0, path: '@{watch.path}', format: 'text' },
-      { id: 'send', type: 'http', x: 460, y: 0, method: 'POST', url: base + '/upload', headers: [], body: '{"text":"@{read.content}"}' }
+      {
+        id: 'send',
+        type: 'http',
+        x: 460,
+        y: 0,
+        method: 'POST',
+        url: base + '/upload',
+        headers: [],
+        body: '{"text":"@{read.content}"}'
+      }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'watch', to: 'read', port: 'next' },
@@ -45,7 +69,9 @@ describe('触发器与节点的组合链路', () => {
     await writeFile(file, 'second')
     const run = await waitForRun(store)
     expect(run).toMatchObject({
-      source: 'automatic', status: 'success', edges: ['a', 'b'],
+      source: 'automatic',
+      status: 'success',
+      edges: ['a', 'b'],
       steps: [
         { nodeId: 'watch', output: { event: 'changed', path: file, isDirectory: false } },
         { nodeId: 'read', output: { path: file } },
@@ -69,15 +95,48 @@ describe('触发器与节点的组合链路', () => {
     const { store } = await createStore()
     const engine = createEngine({ store, notify })
     const nodes: FlowNode[] = [
-      { id: 'poll', type: 'httpPoll', x: 0, y: 0, seconds: 1, url: base + '/state', headers: [], jsonPath: '$.state' },
       {
-        id: 'map', type: 'data', x: 230, y: 0, value: 'null',
+        id: 'poll',
+        type: 'httpPoll',
+        x: 0,
+        y: 0,
+        seconds: 1,
+        url: base + '/state',
+        headers: [],
+        jsonPath: '$.state'
+      },
+      {
+        id: 'map',
+        type: 'data',
+        x: 230,
+        y: 0,
+        value: 'null',
         mapping: [{ key: 'flag', value: '@{poll.value}', convert: 'keep' }]
       },
-      { id: 'gate', type: 'condition', x: 460, y: 0, field: 'map.value.flag', operator: 'eq', value: '"ready"' },
-      { id: 'notify', type: 'notification', x: 690, y: 0, title: '状态 @{map.value.flag}', body: '已就绪' },
       {
-        id: 'save', type: 'fileWrite', x: 690, y: 150, path: join(dir, 'state.json'), format: 'json',
+        id: 'gate',
+        type: 'condition',
+        x: 460,
+        y: 0,
+        field: 'map.value.flag',
+        operator: 'eq',
+        value: '"ready"'
+      },
+      {
+        id: 'notify',
+        type: 'notification',
+        x: 690,
+        y: 0,
+        title: '状态 @{map.value.flag}',
+        body: '已就绪'
+      },
+      {
+        id: 'save',
+        type: 'fileWrite',
+        x: 690,
+        y: 150,
+        path: join(dir, 'state.json'),
+        format: 'json',
         content: '{"flag":"@{map.value.flag}"}'
       }
     ]
@@ -119,10 +178,35 @@ describe('触发器与节点的组合链路', () => {
     const engine = createEngine({ store })
     const nodes: FlowNode[] = [
       { id: 'clock', type: 'interval', x: 0, y: 0, seconds: 60, clock: { time: '09:30' } },
-      { id: 'gate', type: 'condition', x: 230, y: 0, field: 'clock.triggeredAt', operator: 'exists', value: '' },
-      { id: 'save', type: 'fileWrite', x: 460, y: 0, path: file, format: 'text', content: '触发时间 @{clock.triggeredAt}' },
+      {
+        id: 'gate',
+        type: 'condition',
+        x: 230,
+        y: 0,
+        field: 'clock.triggeredAt',
+        operator: 'exists',
+        value: ''
+      },
+      {
+        id: 'save',
+        type: 'fileWrite',
+        x: 460,
+        y: 0,
+        path: file,
+        format: 'text',
+        content: '触发时间 @{clock.triggeredAt}'
+      },
       { id: 'load', type: 'fileRead', x: 690, y: 0, path: '@{save.path}', format: 'text' },
-      { id: 'send', type: 'http', x: 920, y: 0, method: 'POST', url: base + '/done', headers: [], body: '{"text":"@{load.content}"}' }
+      {
+        id: 'send',
+        type: 'http',
+        x: 920,
+        y: 0,
+        method: 'POST',
+        url: base + '/done',
+        headers: [],
+        body: '{"text":"@{load.content}"}'
+      }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'clock', to: 'gate', port: 'next' },
@@ -135,11 +219,19 @@ describe('触发器与节点的组合链路', () => {
     vi.setSystemTime(new Date(2026, 10, 20, 9, 30, 0, 200))
     const run = await waitForRun(store)
     expect(run).toMatchObject({
-      source: 'automatic', status: 'success', edges: ['a', 'b', 'c', 'd'],
-      steps: [{ nodeId: 'clock' }, { nodeId: 'gate', output: { matched: true } },
-        { nodeId: 'save' }, { nodeId: 'load' }, { nodeId: 'send', output: { status: 204 } }]
+      source: 'automatic',
+      status: 'success',
+      edges: ['a', 'b', 'c', 'd'],
+      steps: [
+        { nodeId: 'clock' },
+        { nodeId: 'gate', output: { matched: true } },
+        { nodeId: 'save' },
+        { nodeId: 'load' },
+        { nodeId: 'send', output: { status: 204 } }
+      ]
     })
-    const triggeredAt = (step(run, 'clock')?.output as { triggeredAt: string }).triggeredAt
+    const triggeredAt = (step(run, 'clock')?.output as { triggeredAt?: string } | undefined)?.triggeredAt
+    expect(triggeredAt).toBeTruthy()
     expect(await readFile(file, 'utf8')).toBe('触发时间 ' + triggeredAt)
     expect(JSON.parse(uploaded)).toEqual({ text: '触发时间 ' + triggeredAt })
     expect(store.state.clockDates.flow).toEqual(['2026-11-20T09:30'])
@@ -158,8 +250,25 @@ describe('触发器与节点的组合链路', () => {
     const engine = createEngine({ store, system })
     const nodes: FlowNode[] = [
       { id: 'sys', type: 'system', x: 0, y: 0, events: ['playing'] },
-      { id: 'gate', type: 'condition', x: 230, y: 0, field: 'sys.state', operator: 'eq', value: 'true' },
-      { id: 'send', type: 'http', x: 460, y: 0, method: 'POST', url: base + '/play', headers: [], body: '{"event":"@{sys.event}"}' }
+      {
+        id: 'gate',
+        type: 'condition',
+        x: 230,
+        y: 0,
+        field: 'sys.state',
+        operator: 'eq',
+        value: 'true'
+      },
+      {
+        id: 'send',
+        type: 'http',
+        x: 460,
+        y: 0,
+        method: 'POST',
+        url: base + '/play',
+        headers: [],
+        body: '{"event":"@{sys.event}"}'
+      }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'sys', to: 'gate', port: 'next' },
@@ -167,12 +276,22 @@ describe('触发器与节点的组合链路', () => {
     ]
     await engine.save(workflow('flow', nodes, edges))
     await engine.enable('flow', true)
-    system.emit({ event: 'playing', state: true, appId: null, triggeredAt: new Date().toISOString() })
+    system.emit({
+      event: 'playing',
+      state: true,
+      appId: null,
+      triggeredAt: new Date().toISOString()
+    })
     const run = await waitForRun(store)
     expect(run).toMatchObject({
-      source: 'automatic', status: 'success', edges: ['a', 'b'],
-      steps: [{ nodeId: 'sys', output: { event: 'playing', state: true } },
-        { nodeId: 'gate', output: { matched: true } }, { nodeId: 'send', output: { status: 204 } }]
+      source: 'automatic',
+      status: 'success',
+      edges: ['a', 'b'],
+      steps: [
+        { nodeId: 'sys', output: { event: 'playing', state: true } },
+        { nodeId: 'gate', output: { matched: true } },
+        { nodeId: 'send', output: { status: 204 } }
+      ]
     })
     expect(JSON.parse(uploaded)).toEqual({ event: 'playing' })
   })

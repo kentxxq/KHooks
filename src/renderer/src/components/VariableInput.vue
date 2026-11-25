@@ -67,43 +67,57 @@ function toDocument(template: string): JSONContent {
 }
 
 function toValue(doc: JSONContent): string {
-  return (doc.content ?? []).map((paragraph, index) => {
-    const prefix = index ? paragraph.attrs?.lineEnding ?? '\n' : ''
-    return prefix + (paragraph.content ?? []).map((node) => {
-      if (node.type === 'hardBreak') return '\n'
-      if (node.type === 'mention') {
-        const id = String(node.attrs?.id ?? '')
-        return props.fieldPath ? id : formatFieldRef(id)
-      }
-      return node.text ?? ''
-    }).join('')
-  }).join('')
+  return (doc.content ?? [])
+    .map((paragraph, index) => {
+      const prefix = index ? (paragraph.attrs?.lineEnding ?? '\n') : ''
+      return (
+        prefix +
+        (paragraph.content ?? [])
+          .map((node) => {
+            if (node.type === 'hardBreak') return '\n'
+            if (node.type === 'mention') {
+              const id = String(node.attrs?.id ?? '')
+              return props.fieldPath ? id : formatFieldRef(id)
+            }
+            return node.text ?? ''
+          })
+          .join('')
+      )
+    })
+    .join('')
 }
 
 const variableDocument = Extension.create({
   name: 'variableDocument',
   addGlobalAttributes() {
     // 段落保存原换行符，避免编辑文件内容时改写其他行。
-    return [{ types: ['paragraph'], attributes: { lineEnding: { default: null, rendered: false, keepOnSplit: false } } }]
+    return [
+      { types: ['paragraph'], attributes: { lineEnding: { default: null, rendered: false, keepOnSplit: false } } }
+    ]
   },
   addProseMirrorPlugins() {
-    return [new Plugin({
-      filterTransaction(transaction, state) {
-        if (!transaction.docChanged || props.maxlength === undefined) return true
-        const length = toValue(transaction.doc.toJSON()).length
-        if (length <= props.maxlength || length < toValue(state.doc.toJSON()).length) return true
-        toast.add({ title: props.label + '超过长度上限', color: 'error' })
-        return false
-      }
-    })]
+    return [
+      new Plugin({
+        filterTransaction(transaction, state) {
+          if (!transaction.docChanged || props.maxlength === undefined) return true
+          const length = toValue(transaction.doc.toJSON()).length
+          if (length <= props.maxlength || length < toValue(state.doc.toJSON()).length) return true
+          toast.add({ title: props.label + '超过长度上限', color: 'error' })
+          return false
+        }
+      })
+    ]
   }
 })
 const extensions = [variableDocument]
 
 const editorProps: NonNullable<Editor['options']['editorProps']> = {
   attributes: {
-    id: props.id, role: 'textbox', 'aria-label': props.label,
-    'aria-multiline': String(Boolean(props.rows)), 'aria-readonly': String(props.readonly),
+    id: props.id,
+    role: 'textbox',
+    'aria-label': props.label,
+    'aria-multiline': String(Boolean(props.rows)),
+    'aria-readonly': String(props.readonly),
     style: '--variable-rows: ' + (props.rows ?? 1)
   },
   handleDOMEvents: {
@@ -132,7 +146,9 @@ const editorProps: NonNullable<Editor['options']['editorProps']> = {
 watch(value, (updated) => {
   if (updated !== toValue(content.value)) content.value = toDocument(updated)
 })
-watch(labels, () => { content.value = toDocument(value.value) })
+watch(labels, () => {
+  content.value = toDocument(value.value)
+})
 watch([() => editorRef.value?.editor, () => props.readonly], ([editor, readonly]) => {
   if (!editor) return
   editor.setEditable(!readonly, false)
@@ -162,15 +178,38 @@ function edit(document: JSONContent): void {
     </UModal>
   </div>
   <Teleport :to="modalTarget ?? 'body'" :disabled="!expanded || !modalTarget">
-    <UEditor v-slot="{ editor }" ref="editorRef" :model-value="content" content-type="json"
-      :starter-kit="false" :image="false" :extensions="extensions" :editable="!readonly"
-      :mention="{ deleteTriggerWithBackspace: true }" :editor-props="editorProps"
-      class="variable-input" :class="[attrs.class, { 'variable-input-single': !rows, 'variable-input-expanded': expanded && modalTarget }]"
-      @update:model-value="edit">
+    <UEditor
+      v-slot="{ editor }"
+      ref="editorRef"
+      :model-value="content"
+      content-type="json"
+      :starter-kit="false"
+      :image="false"
+      :extensions="extensions"
+      :editable="!readonly"
+      :mention="{ deleteTriggerWithBackspace: true }"
+      :editor-props="editorProps"
+      class="variable-input"
+      :class="[attrs.class, { 'variable-input-single': !rows, 'variable-input-expanded': expanded && modalTarget }]"
+      @update:model-value="edit"
+    >
       <template v-if="!readonly && fields.length">
-        <UEditorMentionMenu :editor="editor" :items="fields" :filter-fields="filterFields" :append-to="appendMenu" :suggestion="suggestions" />
-        <UEditorMentionMenu :editor="editor" :items="fields" char="＠" plugin-key="fullwidthMentionMenu"
-          :filter-fields="filterFields" :append-to="appendMenu" :suggestion="suggestions" />
+        <UEditorMentionMenu
+          :editor="editor"
+          :items="fields"
+          :filter-fields="filterFields"
+          :append-to="appendMenu"
+          :suggestion="suggestions"
+        />
+        <UEditorMentionMenu
+          :editor="editor"
+          :items="fields"
+          char="＠"
+          plugin-key="fullwidthMentionMenu"
+          :filter-fields="filterFields"
+          :append-to="appendMenu"
+          :suggestion="suggestions"
+        />
       </template>
     </UEditor>
   </Teleport>

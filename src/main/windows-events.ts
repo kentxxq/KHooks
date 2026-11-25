@@ -5,7 +5,13 @@ import { systemEventSchema } from '../shared/workflow'
 
 // 非媒体事件不带 appId,归一化为 null,与手动运行载荷及 UI 输出字段形状一致。
 export const eventSchema = z.strictObject({
-  event: systemEventSchema, state: z.boolean(), appId: z.string().nullish().transform((value) => value ?? null), triggeredAt: z.iso.datetime()
+  event: systemEventSchema,
+  state: z.boolean(),
+  appId: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? null),
+  triggeredAt: z.iso.datetime()
 })
 type Event = z.infer<typeof eventSchema>
 type Listener = (event: Event) => void
@@ -20,21 +26,28 @@ export class WindowsEvents implements SystemEventSource {
   private retry?: ReturnType<typeof setTimeout>
   private delay = 1000
 
-  constructor(private readonly executable: string, private readonly report: (message: string) => void) {}
+  constructor(
+    private readonly executable: string,
+    private readonly report: (message: string) => void
+  ) {}
 
   subscribe(signal: AbortSignal, listener: Listener): void {
     if (signal.aborted) return
     this.listeners.add(listener)
-    signal.addEventListener('abort', () => {
-      this.listeners.delete(listener)
-      if (this.listeners.size) return
-      clearTimeout(this.retry)
-      this.retry = undefined
-      this.delay = 1000
-      const child = this.child
-      this.child = undefined
-      child?.kill()
-    }, { once: true })
+    signal.addEventListener(
+      'abort',
+      () => {
+        this.listeners.delete(listener)
+        if (this.listeners.size) return
+        clearTimeout(this.retry)
+        this.retry = undefined
+        this.delay = 1000
+        const child = this.child
+        this.child = undefined
+        child?.kill()
+      },
+      { once: true }
+    )
     if (!this.child && !this.retry) this.start()
   }
 
@@ -49,7 +62,9 @@ export class WindowsEvents implements SystemEventSource {
       try {
         const event = eventSchema.parse(JSON.parse(line))
         for (const listener of this.listeners) listener(event)
-      } catch { this.report('Windows 事件数据无效') }
+      } catch {
+        this.report('Windows 事件数据无效')
+      }
     })
     const stderr = createInterface({ input: child.stderr })
     stderr.on('line', (line) => {

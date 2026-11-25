@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vite-plus/test'
 import { generateGraph, probe, type Fetch } from '../src/main/network'
 import { Storage } from '../src/main/storage'
 import { Workflows } from '../src/main/workflows'
@@ -12,13 +12,40 @@ const site = { id: 'ipify', mode: 'text', path: '' } as const
 
 function workflow(base: string): Workflow {
   return {
-    id: 'flow', name: 'IP 回调', enabled: false,
+    id: 'flow',
+    name: 'IP 回调',
+    enabled: false,
     nodes: [
       { id: 'ip', type: 'ip', x: 0, y: 0, sites: [site], seconds: 1 },
-      { id: 'if', type: 'condition', x: 230, y: 0, field: 'ip.distinctIpCount', operator: 'eq', value: '1' },
-      { id: 'send', type: 'http', x: 460, y: 0, url: base + '/call', method: 'POST', headers: [],
-        body: '{"ip":"@{ip.winnerIp}","count":"@{ip.distinctIpCount}"}' },
-      { id: 'other', type: 'http', x: 460, y: 150, url: base + '/other', method: 'GET', headers: [], body: '' }
+      {
+        id: 'if',
+        type: 'condition',
+        x: 230,
+        y: 0,
+        field: 'ip.distinctIpCount',
+        operator: 'eq',
+        value: '1'
+      },
+      {
+        id: 'send',
+        type: 'http',
+        x: 460,
+        y: 0,
+        url: base + '/call',
+        method: 'POST',
+        headers: [],
+        body: '{"ip":"@{ip.winnerIp}","count":"@{ip.distinctIpCount}"}'
+      },
+      {
+        id: 'other',
+        type: 'http',
+        x: 460,
+        y: 150,
+        url: base + '/other',
+        method: 'GET',
+        headers: [],
+        body: ''
+      }
     ],
     edges: [
       { id: 'start', from: 'ip', to: 'if', port: 'next' },
@@ -32,30 +59,68 @@ it('加载旧数据时升级站点和上游变量，停用无可用站点的流�
   const file = await storageFile()
   const store = new Storage(file)
   const cip = { id: 'cip', mode: 'text', path: '' }
-  const oldConfig = { type: 'ip', seconds: 1, sites: [site, { id: 'sohu', mode: 'text', path: '' }, cip] }
+  const oldConfig = {
+    type: 'ip',
+    seconds: 1,
+    sites: [site, { id: 'sohu', mode: 'text', path: '' }, cip]
+  }
   const flow = workflow('https://fake_url')
   const oldBody = '{"ip":"{{ ip.winnerIp }}","count":"{{ip.distinctIpCount}}"}'
   const body = '{"ip":"@{ip.winnerIp}","count":"@{ip.distinctIpCount}"}'
-  const oldFlow = { ...flow, nodes: flow.nodes.map((node) => node.id === 'send' ? { ...node, body: oldBody } : node) }
+  const oldFlow = {
+    ...flow,
+    nodes: flow.nodes.map((node) => (node.id === 'send' ? { ...node, body: oldBody } : node))
+  }
   const previousIp = '203.0.113.10'
-  await writeFile(file, JSON.stringify({
-    ...store.state, version: 1,
-    workflows: [
-      { ...oldFlow, enabled: true, nodes: [{ ...oldFlow.nodes[0], ...oldConfig }, ...oldFlow.nodes.slice(1)] },
-      { ...flow, id: 'cip-only', enabled: true, nodes: [{ ...flow.nodes[0], ...oldConfig, sites: [cip] }, ...flow.nodes.slice(1)] }
-    ],
-    components: [
-      { id: 'legacy', name: '旧触发器', config: oldConfig },
-      { id: 'file', name: '旧文件组件', config: { type: 'fileWrite', format: 'text', path: 'C:/fake_info', content: '{{ip.winnerIp}}' } }
-    ],
-    queue: [{ id: 'task', flow: oldFlow, payload: {}, allowDisabled: true }],
-    runs: [{
-      id: 'run', workflowId: flow.id, name: flow.name, workflow: oldFlow, status: 'success',
-      startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:01.000Z', steps: [], edges: []
-    }],
-    baselines: { [flow.id]: previousIp },
-    samples: { [flow.id]: { winnerIp: previousIp } }
-  }))
+  await writeFile(
+    file,
+    JSON.stringify({
+      ...store.state,
+      version: 1,
+      workflows: [
+        {
+          ...oldFlow,
+          enabled: true,
+          nodes: [{ ...oldFlow.nodes[0], ...oldConfig }, ...oldFlow.nodes.slice(1)]
+        },
+        {
+          ...flow,
+          id: 'cip-only',
+          enabled: true,
+          nodes: [{ ...flow.nodes[0], ...oldConfig, sites: [cip] }, ...flow.nodes.slice(1)]
+        }
+      ],
+      components: [
+        { id: 'legacy', name: '旧触发器', config: oldConfig },
+        {
+          id: 'file',
+          name: '旧文件组件',
+          config: {
+            type: 'fileWrite',
+            format: 'text',
+            path: 'C:/fake_info',
+            content: '{{ip.winnerIp}}'
+          }
+        }
+      ],
+      queue: [{ id: 'task', flow: oldFlow, payload: {}, allowDisabled: true }],
+      runs: [
+        {
+          id: 'run',
+          workflowId: flow.id,
+          name: flow.name,
+          workflow: oldFlow,
+          status: 'success',
+          startedAt: '2026-01-01T00:00:00.000Z',
+          finishedAt: '2026-01-01T00:00:01.000Z',
+          steps: [],
+          edges: []
+        }
+      ],
+      baselines: { [flow.id]: previousIp },
+      samples: { [flow.id]: { winnerIp: previousIp } }
+    })
+  )
 
   await store.open()
 
@@ -83,7 +148,9 @@ it('手动运行保存可跨重启读取的 IP 基线，并保留最后一次采
   const fetcher: Fetch = async () => new Response(currentIp)
   const engine = createEngine({ store, fetcher })
   const { id, enabled, ...graph } = {
-    id: 'demo', enabled: false, name: '手动运行 IP 流程',
+    id: 'demo',
+    enabled: false,
+    name: '手动运行 IP 流程',
     nodes: [
       { id: 'ip', type: 'ip', x: 0, y: 0, seconds: 60, sites: [site] },
       { id: 'data', type: 'data', x: 230, y: 0, value: '{}' }
@@ -92,7 +159,10 @@ it('手动运行保存可跨重启读取的 IP 基线，并保留最后一次采
   } satisfies Workflow
   await engine.save({ ...graph, id, enabled })
   await engine.run(id, graph)
-  expect(store.state.runs[0].steps[0].output).toMatchObject({ previousIp: null, winnerIp: '203.0.113.10' })
+  expect(store.state.runs[0].steps[0].output).toMatchObject({
+    previousIp: null,
+    winnerIp: '203.0.113.10'
+  })
   expect(store.state.samples[id]).toMatchObject({ previousIp: null, winnerIp: '203.0.113.10' })
 
   const reopened = new Storage(file)
@@ -100,18 +170,31 @@ it('手动运行保存可跨重启读取的 IP 基线，并保留最后一次采
   const restarted = createEngine({ store: reopened, fetcher })
   currentIp = '203.0.113.11'
   await restarted.run(id, graph)
-  expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: '203.0.113.10', winnerIp: '203.0.113.11' })
+  expect(reopened.state.runs[0].steps[0].output).toMatchObject({
+    previousIp: '203.0.113.10',
+    winnerIp: '203.0.113.11'
+  })
 
   currentIp = ''
   await restarted.run(id, graph)
-  expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: '203.0.113.11', winnerIp: null })
+  expect(reopened.state.runs[0].steps[0].output).toMatchObject({
+    previousIp: '203.0.113.11',
+    winnerIp: null
+  })
   expect(reopened.state.baselines[id]).toBe('203.0.113.11')
 
-  const changedGraph = { ...graph, nodes: graph.nodes.map((node) => node.type === 'ip'
-    ? { ...node, sites: [{ ...site, id: 'aws' as const }] } : node) }
+  const changedGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.type === 'ip' ? { ...node, sites: [{ ...site, id: 'aws' as const }] } : node
+    )
+  }
   currentIp = '203.0.113.12'
   await restarted.run(id, changedGraph)
-  expect(reopened.state.runs[0].steps[0].output).toMatchObject({ previousIp: null, winnerIp: '203.0.113.12' })
+  expect(reopened.state.runs[0].steps[0].output).toMatchObject({
+    previousIp: null,
+    winnerIp: '203.0.113.12'
+  })
   expect(reopened.state.baselines[id]).toBe('203.0.113.11')
 })
 
@@ -132,7 +215,8 @@ it('跨重启保留基线，首次不执行，同一变化只请求一次并记�
     response.statusCode = 204
     response.end()
   })
-  const fetcher: Fetch = (url, init) => fetch(String(url).startsWith('https://api.ipify.org') ? base + '/ip' : url, init)
+  const fetcher: Fetch = (url, init) =>
+    fetch(String(url).startsWith('https://api.ipify.org') ? base + '/ip' : url, init)
   const file = await storageFile()
   const first = new Storage(file)
   await first.open()
@@ -151,10 +235,14 @@ it('跨重启保留基线，首次不执行，同一变化只请求一次并记�
   const restarted = createEngine({ store: reopened, fetcher })
   restarted.start()
   await vi.waitFor(() => expect(reopened.state.runs[0]?.status).toBe('success'))
-  expect(reopened.state.runs[0]).toMatchObject({ edges: ['start', 'true'], steps: [
-    { nodeId: 'ip', output: { previousIp: '203.0.113.10', winnerIp: '203.0.113.11' } },
-    { nodeId: 'if', output: { matched: true } }, { nodeId: 'send', output: { status: 204 } }
-  ] })
+  expect(reopened.state.runs[0]).toMatchObject({
+    edges: ['start', 'true'],
+    steps: [
+      { nodeId: 'ip', output: { previousIp: '203.0.113.10', winnerIp: '203.0.113.11' } },
+      { nodeId: 'if', output: { matched: true } },
+      { nodeId: 'send', output: { status: 204 } }
+    ]
+  })
   await vi.waitFor(() => expect(probes).toBeGreaterThanOrEqual(3), { timeout: 2500 })
   expect(captures).toEqual([{ path: '/call', body: { ip: current, count: 1 } }])
   expect(reopened.state.runs).toHaveLength(1)
@@ -167,12 +255,17 @@ it('站点超时独立失败，HTTP 非 2xx 的节点记录错误', async () => 
     response.statusCode = 503
     response.end()
   })
-  await expect(probe(site, (_, init) => fetch(base + '/hold', init), 35)).resolves.toEqual({ id: 'ipify', error: '站点请求超时' })
+  await expect(probe(site, (_, init) => fetch(base + '/hold', init), 35)).resolves.toEqual({
+    id: 'ipify',
+    error: '站点请求超时'
+  })
   const store = new Storage(await storageFile())
   await store.open()
   const engine = createEngine({ store })
   await engine.save({
-    id: 'manual', name: '手动请求', enabled: false,
+    id: 'manual',
+    name: '手动请求',
+    enabled: false,
     nodes: [
       { id: 'start', x: 0, y: 0, type: 'manual' },
       { id: 'send', x: 230, y: 0, type: 'http', method: 'GET', url: base, headers: [], body: '' }
@@ -182,7 +275,10 @@ it('站点超时独立失败，HTTP 非 2xx 的节点记录错误', async () => 
   await expect(engine.run('manual')).rejects.toThrow('请先启用流程')
   await engine.enable('manual', true)
   await engine.run('manual')
-  expect(store.state.runs[0]).toMatchObject({ status: 'failed', steps: [{ nodeId: 'start' }, { nodeId: 'send', error: 'HTTP 503' }] })
+  expect(store.state.runs[0]).toMatchObject({
+    status: 'failed',
+    steps: [{ nodeId: 'start' }, { nodeId: 'send', error: 'HTTP 503' }]
+  })
 })
 
 it('OpenAI 兼容请求只提交模型、提示和节点约定，拒绝模型返回的非法图', async () => {
@@ -206,7 +302,8 @@ it('OpenAI 兼容请求只提交模型、提示和节点约定，拒绝模型返
   expect(workflows.get(created.id)).toEqual(created)
   expect(captures[0].path).toBe('/v1/chat/completions')
   expect(captures[0].body).toMatchObject({
-    model: 'fake_info', messages: [{ role: 'system' }, { role: 'user', content: '编排公网 IP 查询' }]
+    model: 'fake_info',
+    messages: [{ role: 'system' }, { role: 'user', content: '编排公网 IP 查询' }]
   })
   expect(Object.keys(captures[0].body).sort()).toEqual(['messages', 'model'])
   value = { ...valid, edges: [] }
@@ -224,18 +321,34 @@ it('定时流程命中否分支，停用后不再调度', async () => {
   await store.open()
   const engine = createEngine({ store })
   const flow = workflow(base)
-  flow.nodes.splice(0, 2,
+  flow.nodes.splice(
+    0,
+    2,
     { id: 'ip', type: 'interval', x: 0, y: 0, seconds: 1 },
-    { id: 'if', type: 'condition', x: 230, y: 0, field: 'ip.triggeredAt', operator: 'eq', value: 'fake_info' })
+    {
+      id: 'if',
+      type: 'condition',
+      x: 230,
+      y: 0,
+      field: 'ip.triggeredAt',
+      operator: 'eq',
+      value: 'fake_info'
+    }
+  )
   await engine.save(flow)
   await engine.enable(flow.id, true)
   expect(received).toEqual([])
   await vi.waitFor(() => expect(store.state.runs[0]?.status).toBe('success'), { timeout: 2500 })
   await engine.enable(flow.id, false)
   await engine.drain()
-  expect(store.state.runs[0]).toMatchObject({ edges: ['start', 'false'], steps: [
-    { nodeId: 'ip' }, { nodeId: 'if', output: { matched: false } }, { nodeId: 'other', output: { status: 204 } }
-  ] })
+  expect(store.state.runs[0]).toMatchObject({
+    edges: ['start', 'false'],
+    steps: [
+      { nodeId: 'ip' },
+      { nodeId: 'if', output: { matched: false } },
+      { nodeId: 'other', output: { status: 204 } }
+    ]
+  })
   await new Promise((done) => setTimeout(done, 1100))
   expect(received).toEqual(['/other'])
 })

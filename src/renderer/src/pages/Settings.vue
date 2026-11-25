@@ -35,8 +35,12 @@ const offeredVersion = ref<string>()
 const updateOpen = ref(false)
 const elapsedSeconds = ref(0)
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
-const applyingUpdate = computed(() => updateAction.value === 'apply' ||
-  (updateOpen.value && update.value?.state === 'downloading') || update.value?.state === 'installing')
+const applyingUpdate = computed(
+  () =>
+    updateAction.value === 'apply' ||
+    (updateOpen.value && update.value?.state === 'downloading') ||
+    update.value?.state === 'installing'
+)
 
 const hasUnsavedChanges = computed(() => {
   const saved = store.data?.settings
@@ -49,7 +53,9 @@ const hasUnsavedChanges = computed(() => {
   )
 })
 
-const aiConfigured = computed(() => Boolean(aiUrl.value.trim() && aiModel.value.trim() && (hasAiKey.value || aiKey.value.trim())))
+const aiConfigured = computed(() =>
+  Boolean(aiUrl.value.trim() && aiModel.value.trim() && (hasAiKey.value || aiKey.value.trim()))
+)
 const updatePercent = computed(() => Math.min(100, Math.max(0, Math.round(update.value?.percent ?? 0))))
 
 const updateStatusLabel = computed(() => {
@@ -83,7 +89,9 @@ watch(applyingUpdate, (active) => {
   stopElapsedTimer()
   if (!active) return
   elapsedSeconds.value = 0
-  elapsedTimer = setInterval(() => { elapsedSeconds.value += 1 }, 1000)
+  elapsedTimer = setInterval(() => {
+    elapsedSeconds.value += 1
+  }, 1000)
 })
 
 onUnmounted(stopElapsedTimer)
@@ -110,7 +118,10 @@ async function save(clearKey = false): Promise<void> {
   saving.value = true
   try {
     await desktop.settings({
-      login: login.value, aiUrl: aiUrl.value, aiModel: aiModel.value, aiKey: clearKey ? '' : aiKey.value || undefined
+      login: login.value,
+      aiUrl: aiUrl.value,
+      aiModel: aiModel.value,
+      aiKey: clearKey ? '' : aiKey.value || undefined
     })
     await store.refresh()
     aiKey.value = ''
@@ -187,7 +198,10 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
     if (result.state === 'error') toast.add({ title: result.error ?? '更新失败', color: 'error' })
     else if (result.state === 'unpublished') toast.add({ title: '暂无已发布版本', color: 'primary' })
     else if (result.state === 'current') toast.add({ title: '已是最新版本', color: 'success' })
-    else if (action === 'check' && (result.state === 'available' || result.state === 'downloading' || result.state === 'downloaded')) {
+    else if (
+      action === 'check' &&
+      (result.state === 'available' || result.state === 'downloading' || result.state === 'downloaded')
+    ) {
       offeredVersion.value = result.version
       updateOpen.value = true
     }
@@ -247,8 +261,25 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
       <div class="settings-group-head">
         <div class="settings-group-label"><UIcon name="i-lucide-sparkles" /> AI 服务</div>
         <div class="actions">
-          <UButton color="neutral" variant="outline" size="xs" icon="i-lucide-plug-zap" :loading="testingAi" :disabled="saving" @click="testAi">测试连接</UButton>
-          <UButton v-if="hasAiKey" color="neutral" variant="ghost" size="xs" :disabled="saving || testingAi" @click="save(true)">移除密钥</UButton>
+          <UButton
+            color="neutral"
+            variant="outline"
+            size="xs"
+            icon="i-lucide-plug-zap"
+            :loading="testingAi"
+            :disabled="saving"
+            @click="testAi"
+            >测试连接</UButton
+          >
+          <UButton
+            v-if="hasAiKey"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :disabled="saving || testingAi"
+            @click="save(true)"
+            >移除密钥</UButton
+          >
         </div>
       </div>
       <div class="surface settings-card">
@@ -321,7 +352,9 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
         <div class="settings-row">
           <div class="settings-key version-inline">
             <strong>v{{ version }}</strong>
-            <span class="version-meta" :class="update?.state === 'downloaded' ? 'success-text' : 'muted'">· {{ updateStatusLabel }}</span>
+            <span class="version-meta" :class="update?.state === 'downloaded' ? 'success-text' : 'muted'"
+              >· {{ updateStatusLabel }}</span
+            >
           </div>
           <div class="settings-control settings-control-end">
             <UButton
@@ -348,7 +381,13 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
           </div>
         </div>
         <div v-if="update?.state === 'downloading'" class="settings-row">
-          <div class="progress-track full-width" role="progressbar" :aria-valuenow="updatePercent" aria-valuemin="0" aria-valuemax="100">
+          <div
+            class="progress-track full-width"
+            role="progressbar"
+            :aria-valuenow="updatePercent"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
             <div class="progress-bar" :style="{ width: updatePercent + '%' }" />
           </div>
         </div>
@@ -369,7 +408,9 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
     <div v-if="hasUnsavedChanges" class="floating-save-bar">
       <span class="dirty-pill">有未保存更改</span>
       <div class="actions">
-        <UButton color="neutral" variant="ghost" size="sm" :disabled="saving || testingAi" @click="resetDraft">放弃</UButton>
+        <UButton color="neutral" variant="ghost" size="sm" :disabled="saving || testingAi" @click="resetDraft"
+          >放弃</UButton
+        >
         <UButton size="sm" :loading="saving" :disabled="testingAi" @click="save()">保存设置</UButton>
       </div>
     </div>
@@ -382,9 +423,13 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
       :dismissible="!applyingUpdate"
     >
       <template #body v-if="applyingUpdate">
-        <p role="status">{{ update?.state === 'installing'
-          ? '正在启动安装程序 · 已用 ' + elapsedSeconds + ' 秒'
-          : '正在下载 · ' + updatePercent + '% · 已用 ' + elapsedSeconds + ' 秒' }}</p>
+        <p role="status">
+          {{
+            update?.state === 'installing'
+              ? '正在启动安装程序 · 已用 ' + elapsedSeconds + ' 秒'
+              : '正在下载 · ' + updatePercent + '% · 已用 ' + elapsedSeconds + ' 秒'
+          }}
+        </p>
       </template>
       <template #footer>
         <UButton color="neutral" variant="outline" :disabled="applyingUpdate" @click="updateOpen = false">稍后</UButton>
@@ -424,8 +469,12 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
   padding: 0 4px;
   margin-bottom: 8px;
 }
-.settings-group-head .settings-group-label { margin-bottom: 0; }
-.settings-card { overflow: hidden; }
+.settings-group-head .settings-group-label {
+  margin-bottom: 0;
+}
+.settings-card {
+  overflow: hidden;
+}
 .settings-row {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
@@ -433,9 +482,15 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
   gap: 16px;
   padding: 13px 18px;
 }
-.settings-row + .settings-row { border-top: 1px solid var(--line); }
-.settings-row-field { align-items: start; }
-.settings-row-field .settings-key { padding-top: 6px; }
+.settings-row + .settings-row {
+  border-top: 1px solid var(--line);
+}
+.settings-row-field {
+  align-items: start;
+}
+.settings-row-field .settings-key {
+  padding-top: 6px;
+}
 .settings-key {
   font-size: 13px;
   color: var(--ui-text-toned);
@@ -468,7 +523,9 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
   font-weight: 560;
   color: var(--dim);
 }
-.segmented-btn:hover:not(:disabled) { color: var(--ui-text-highlighted); }
+.segmented-btn:hover:not(:disabled) {
+  color: var(--ui-text-highlighted);
+}
 .segmented-btn.active {
   background: var(--surface);
   color: var(--ui-text-highlighted);
@@ -485,7 +542,9 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
   gap: 6px;
   white-space: nowrap;
 }
-.version-meta { font-size: 13px; }
+.version-meta {
+  font-size: 13px;
+}
 .inline-link {
   display: inline-flex;
   align-items: center;
@@ -502,7 +561,7 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
   height: 100%;
   border-radius: 999px;
   background: var(--accent);
-  transition: width .2s ease;
+  transition: width 0.2s ease;
 }
 .floating-save-bar {
   position: sticky;
@@ -521,7 +580,13 @@ async function updater(action: NonNullable<typeof updateAction.value>): Promise<
 }
 
 @media (max-width: 820px) {
-  .settings-row { grid-template-columns: 1fr; gap: 8px; }
-  .settings-control-end { justify-items: start; justify-content: start; }
+  .settings-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .settings-control-end {
+    justify-items: start;
+    justify-content: start;
+  }
 }
 </style>

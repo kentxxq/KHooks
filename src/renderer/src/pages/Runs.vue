@@ -37,9 +37,12 @@ const sourceSelectItems = [
   { label: '草稿试跑', value: 'preview' }
 ]
 
-watch(() => route.query.flow, (value) => {
-  flowFilter.value = typeof value === 'string' && value ? value : 'all'
-})
+watch(
+  () => route.query.flow,
+  (value) => {
+    flowFilter.value = typeof value === 'string' && value ? value : 'all'
+  }
+)
 
 function setFlowFilter(next: string): void {
   flowFilter.value = next
@@ -82,10 +85,11 @@ const runsByFlowAndSearch = computed(() => {
     if (sourceFilter.value !== 'all' && run.source !== sourceFilter.value) return false
     if (!q) return true
     if (run.name.toLowerCase().includes(q) || run.id.toLowerCase().includes(q)) return true
-    return run.steps.some((step) =>
-      step.type.toLowerCase().includes(q) ||
-      step.nodeId.toLowerCase().includes(q) ||
-      (step.error && step.error.toLowerCase().includes(q))
+    return run.steps.some(
+      (step) =>
+        step.type.toLowerCase().includes(q) ||
+        step.nodeId.toLowerCase().includes(q) ||
+        (step.error && step.error.toLowerCase().includes(q))
     )
   })
 })
@@ -132,8 +136,12 @@ const pagedRuns = computed(() => {
   return filteredRuns.value.slice(start, start + pageSize.value)
 })
 
-const hasActiveFilters = computed(() =>
-  Boolean(search.value.trim()) || statusFilter.value !== 'all' || sourceFilter.value !== 'all' || flowFilter.value !== 'all'
+const hasActiveFilters = computed(
+  () =>
+    Boolean(search.value.trim()) ||
+    statusFilter.value !== 'all' ||
+    sourceFilter.value !== 'all' ||
+    flowFilter.value !== 'all'
 )
 
 function resetFilters(): void {
@@ -178,11 +186,12 @@ const timelineGroups = computed(() => {
   for (const run of pagedRuns.value) {
     const date = new Date(run.startedAt)
     const dayKey = date.toDateString()
-    const label = dayKey === todayKey
-      ? '今天'
-      : dayKey === yesterdayKey
-        ? '昨天'
-        : date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    const label =
+      dayKey === todayKey
+        ? '今天'
+        : dayKey === yesterdayKey
+          ? '昨天'
+          : date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
     let group = map.get(dayKey)
     if (!group) {
       group = { key: dayKey, label, items: [] }
@@ -207,7 +216,9 @@ function timeOnly(value: string): string {
           <h1>运行记录</h1>
           <p class="muted">
             <template v-if="activeFlow">{{ activeFlow.name }} · </template>
-            共 {{ filteredRuns.length }} 条<template v-if="filteredRuns.length !== allRuns.length">（总计 {{ allRuns.length }} 条）</template>
+            共 {{ filteredRuns.length }} 条<template v-if="filteredRuns.length !== allRuns.length"
+              >（总计 {{ allRuns.length }} 条）</template
+            >
           </p>
         </div>
         <UButton v-if="route.query.flow" to="/runs" color="neutral" variant="outline" size="sm">查看全部</UButton>
@@ -229,12 +240,7 @@ function timeOnly(value: string): string {
             class="runs-select-flow"
             @update:model-value="setFlowFilter(String($event))"
           />
-          <USelect
-            v-model="sourceFilter"
-            :items="sourceSelectItems"
-            size="sm"
-            class="runs-select-source"
-          />
+          <USelect v-model="sourceFilter" :items="sourceSelectItems" size="sm" class="runs-select-source" />
           <UButton
             size="sm"
             color="neutral"
@@ -275,7 +281,9 @@ function timeOnly(value: string): string {
               :to="{ name: 'run', params: { id: run.id } }"
               class="timeline-row"
             >
-              <span class="timeline-time tabular muted" :title="dateTime(run.startedAt)">{{ timeOnly(run.startedAt) }}</span>
+              <span class="timeline-time tabular muted" :title="dateTime(run.startedAt)">{{
+                timeOnly(run.startedAt)
+              }}</span>
               <span class="timeline-axis">
                 <span class="timeline-node" :class="statusClass(run.status)" />
               </span>
@@ -303,12 +311,15 @@ function timeOnly(value: string): string {
       <div v-else class="surface empty-state">
         <span class="empty-icon"><UIcon name="i-lucide-history" /></span>
         <h2>{{ allRuns.length ? '没有匹配的运行记录' : '暂无运行记录' }}</h2>
-        <UButton v-if="hasActiveFilters" color="neutral" variant="soft" size="sm" @click="resetFilters">清空筛选</UButton>
+        <UButton v-if="hasActiveFilters" color="neutral" variant="soft" size="sm" @click="resetFilters"
+          >清空筛选</UButton
+        >
       </div>
 
       <footer v-if="filteredRuns.length" class="runs-pagination">
         <span class="muted text-xs tabular">
-          第 {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, filteredRuns.length) }} 条，共 {{ filteredRuns.length }} 条
+          第 {{ (page - 1) * pageSize + 1 }}–{{ Math.min(page * pageSize, filteredRuns.length) }} 条，共
+          {{ filteredRuns.length }} 条
         </span>
         <div class="runs-pagination-controls">
           <USelect v-model="pageSize" :items="pageSizeOptions" size="xs" class="runs-page-size" />
@@ -332,60 +343,204 @@ function timeOnly(value: string): string {
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
-.runs-page { display: flex; flex-direction: column; gap: 16px; }
-.runs-page .page-heading { margin-bottom: 2px; flex-wrap: wrap; }
-.tabular { font-variant-numeric: tabular-nums; }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.runs-page .page-heading {
+  margin-bottom: 2px;
+  flex-wrap: wrap;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .source-tag {
-  display: inline-flex; align-items: center; width: fit-content; padding: 2px 7px;
-  border-radius: 6px; font-size: 11px; color: var(--ui-text-toned);
-  background: var(--ui-bg-muted); border: 1px solid var(--line); white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--ui-text-toned);
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--line);
+  white-space: nowrap;
 }
 
 /* 筛选工具栏与状态分类胶囊 */
-.runs-toolbar { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
-.runs-toolbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.runs-search { width: 260px; flex: 1 1 200px; max-width: 360px; }
-.runs-select-flow { width: 190px; }
-.runs-select-source { width: 120px; }
-.runs-reset-btn { margin-left: auto; }
-.status-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pill-btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
-  font-size: 12px; color: var(--dim); background: var(--ui-bg-muted); border: 1px solid var(--line);
-  transition: background .12s, border-color .12s, color .12s;
+.runs-toolbar {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.pill-btn:hover { color: var(--ui-text-highlighted); border-color: var(--ui-border-accented); }
-.pill-btn.active { background: var(--surface); color: var(--ui-text-highlighted); border-color: var(--accent); font-weight: 600; }
-.pill-btn.active.success { color: var(--success); border-color: var(--success-border); background: var(--success-bg); }
-.pill-btn.active.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
-.pill-count { font-size: 11px; opacity: .8; font-variant-numeric: tabular-nums; }
+.runs-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.runs-search {
+  width: 260px;
+  flex: 1 1 200px;
+  max-width: 360px;
+}
+.runs-select-flow {
+  width: 190px;
+}
+.runs-select-source {
+  width: 120px;
+}
+.runs-reset-btn {
+  margin-left: auto;
+}
+.status-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--dim);
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--line);
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+.pill-btn:hover {
+  color: var(--ui-text-highlighted);
+  border-color: var(--ui-border-accented);
+}
+.pill-btn.active {
+  background: var(--surface);
+  color: var(--ui-text-highlighted);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.pill-btn.active.success {
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-bg);
+}
+.pill-btn.active.danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.pill-count {
+  font-size: 11px;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
 
 /* 时间轴日期分组 */
-.timeline-groups { display: flex; flex-direction: column; gap: 16px; }
-.timeline-group { display: flex; flex-direction: column; gap: 8px; }
-.timeline-date { display: flex; align-items: baseline; gap: 8px; padding: 0 4px; font-weight: 650; font-size: 13px; }
-.timeline-list { overflow: hidden; }
-.timeline-row {
-  display: flex; align-items: center; gap: 14px; padding: 12px 16px;
-  transition: background .12s;
+.timeline-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-.timeline-row + .timeline-row { border-top: 1px solid var(--line); }
-.timeline-row:hover { background: var(--ui-bg-muted); }
-.timeline-time { width: 64px; font-size: 12px; flex: none; }
-.timeline-axis { display: grid; place-items: center; width: 14px; flex: none; }
-.timeline-node { width: 9px; height: 9px; border-radius: 999px; background: var(--dim); }
-.timeline-node.online { background: var(--success); }
-.timeline-node.danger { background: var(--danger); }
-.timeline-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
-.timeline-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.timeline-sub { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+.timeline-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.timeline-date {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 4px;
+  font-weight: 650;
+  font-size: 13px;
+}
+.timeline-list {
+  overflow: hidden;
+}
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  transition: background 0.12s;
+}
+.timeline-row + .timeline-row {
+  border-top: 1px solid var(--line);
+}
+.timeline-row:hover {
+  background: var(--ui-bg-muted);
+}
+.timeline-time {
+  width: 64px;
+  font-size: 12px;
+  flex: none;
+}
+.timeline-axis {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  flex: none;
+}
+.timeline-node {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--dim);
+}
+.timeline-node.online {
+  background: var(--success);
+}
+.timeline-node.danger {
+  background: var(--danger);
+}
+.timeline-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.timeline-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
 
 /* 底部分页 */
 .runs-pagination {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 4px 2px;
 }
-.runs-pagination-controls { display: flex; align-items: center; gap: 10px; }
-.runs-page-size { width: 104px; }
+.runs-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.runs-page-size {
+  width: 104px;
+}
 </style>

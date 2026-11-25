@@ -20,12 +20,16 @@ const selected = ref('')
 const onlyFailed = ref(false)
 const outputMode = ref<OutputMode>('structured')
 
-watch(() => run.value?.id, () => {
-  onlyFailed.value = false
-  const steps = run.value?.steps ?? []
-  const target = steps.find((step) => step.error) ?? steps[0]
-  selected.value = target?.nodeId ?? ''
-}, { immediate: true })
+watch(
+  () => run.value?.id,
+  () => {
+    onlyFailed.value = false
+    const steps = run.value?.steps ?? []
+    const target = steps.find((step) => step.error) ?? steps[0]
+    selected.value = target?.nodeId ?? ''
+  },
+  { immediate: true }
+)
 
 const failedCount = computed(() => (run.value?.steps ?? []).filter((step) => Boolean(step.error)).length)
 const visibleSteps = computed(() => {
@@ -37,7 +41,9 @@ const result = computed(() => run.value?.steps.find((step) => step.nodeId === se
 
 const selection = computed({
   get: () => ({ nodes: selected.value ? [selected.value] : [], edges: [] as string[] }),
-  set: (value: { nodes: string[]; edges: string[] }) => { selected.value = value.nodes.at(-1) ?? '' }
+  set: (value: { nodes: string[]; edges: string[] }) => {
+    selected.value = value.nodes.at(-1) ?? ''
+  }
 })
 
 function findNode(step: RunStep): FlowNode | undefined {
@@ -47,7 +53,7 @@ function findNode(step: RunStep): FlowNode | undefined {
 function stepLabel(step: RunStep): string {
   const workflow = run.value?.workflow
   const node = findNode(step)
-  return workflow && node ? nodeLabel(workflow, node) : nodeNames[step.type as FlowNode['type']] ?? step.type
+  return workflow && node ? nodeLabel(workflow, node) : (nodeNames[step.type as FlowNode['type']] ?? step.type)
 }
 
 function stepIcon(step: RunStep): string {
@@ -80,12 +86,14 @@ function structuredFields(step: RunStep): StructuredField[] {
   const data = stepData(step)
   if (data === undefined) return []
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-    return [{
-      key: 'output',
-      label: '输出结果',
-      complex: typeof data === 'object' && data !== null,
-      display: typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-    }]
+    return [
+      {
+        key: 'output',
+        label: '输出结果',
+        complex: typeof data === 'object' && data !== null,
+        display: typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+      }
+    ]
   }
   const node = findNode(step)
   const labelMap = new Map<string, string>()
@@ -96,13 +104,16 @@ function structuredFields(step: RunStep): StructuredField[] {
   }
   return Object.entries(data as Record<string, unknown>).map(([key, value]) => {
     const complex = typeof value === 'object' && value !== null
-    const display = typeof value === 'string'
-      ? value
-      : typeof value === 'boolean'
-        ? (value ? 'true（是）' : 'false（否）')
-        : complex
-          ? JSON.stringify(value, null, 2)
-          : String(value)
+    const display =
+      typeof value === 'string'
+        ? value
+        : typeof value === 'boolean'
+          ? value
+            ? 'true（是）'
+            : 'false（否）'
+          : complex
+            ? JSON.stringify(value, null, 2)
+            : String(value)
     return {
       key,
       label: labelMap.get(key) ?? key,
@@ -135,7 +146,11 @@ async function copyText(text: string, label = '内容'): Promise<void> {
     <div class="editor-stage">
       <section class="canvas-panel">
         <div class="canvas-island canvas-island-left">
-          <RouterLink :to="{ name: 'runs', query: { flow: run.workflowId } }" class="back-link" aria-label="返回运行记录">
+          <RouterLink
+            :to="{ name: 'runs', query: { flow: run.workflowId } }"
+            class="back-link"
+            aria-label="返回运行记录"
+          >
             <UIcon name="i-lucide-arrow-left" />
           </RouterLink>
           <div class="run-meta">
@@ -204,7 +219,10 @@ async function copyText(text: string, label = '内容'): Promise<void> {
                 </span>
                 <div class="min-w-0 flex-1">
                   <strong class="block truncate">{{ stepLabel(result) }}</strong>
-                  <small class="muted tabular">{{ stepDuration(result) }}<template v-if="result.attempts !== undefined"> · {{ result.attempts }} 次尝试</template></small>
+                  <small class="muted tabular"
+                    >{{ stepDuration(result)
+                    }}<template v-if="result.attempts !== undefined"> · {{ result.attempts }} 次尝试</template></small
+                  >
                 </div>
                 <span class="status" :class="result.error ? 'danger' : 'online'">
                   {{ result.error ? '失败' : '成功' }}
@@ -221,16 +239,20 @@ async function copyText(text: string, label = '内容'): Promise<void> {
                 <span class="error-text font-semibold flex items-center gap-1">
                   <UIcon name="i-lucide-alert-circle" /> 错误信息
                 </span>
-                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-copy" @click="copyText(result.error, '错误信息')" />
+                <UButton
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-copy"
+                  @click="copyText(result.error, '错误信息')"
+                />
               </div>
               <p class="error-text whitespace-pre-wrap wrap-anywhere text-xs">{{ result.error }}</p>
             </div>
 
             <div v-if="result.notification" class="info-box">
               <div class="box-head">
-                <span class="font-semibold flex items-center gap-1">
-                  <UIcon name="i-lucide-bell" /> 通知内容
-                </span>
+                <span class="font-semibold flex items-center gap-1"> <UIcon name="i-lucide-bell" /> 通知内容 </span>
               </div>
               <div class="notif-preview">
                 <strong>{{ result.notification.title }}</strong>
@@ -269,7 +291,12 @@ async function copyText(text: string, label = '内容'): Promise<void> {
               </div>
 
               <div v-if="outputMode === 'structured'" class="kv-list">
-                <div v-for="field in structuredFields(result)" :key="field.key" class="kv-item" :class="{ stacked: field.complex }">
+                <div
+                  v-for="field in structuredFields(result)"
+                  :key="field.key"
+                  class="kv-item"
+                  :class="{ stacked: field.complex }"
+                >
                   <div class="kv-key">
                     <span>{{ field.label }}</span>
                     <code v-if="field.label !== field.key" class="kv-raw-key">{{ field.key }}</code>
@@ -296,76 +323,218 @@ async function copyText(text: string, label = '内容'): Promise<void> {
 </template>
 
 <style scoped>
-.tabular { font-variant-numeric: tabular-nums; }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.mini-icon { width: 24px; height: 24px; font-size: 13px; border-radius: 6px; }
+.mini-icon {
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  border-radius: 6px;
+}
 .step-idx {
-  width: 18px; height: 18px; border-radius: 999px; display: grid; place-items: center;
-  font-size: 11px; color: var(--dim); background: var(--ui-bg-muted); flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--ui-bg-muted);
+  flex: none;
 }
 
-.split-inspector { width: 430px; }
-.split-steps {
-  flex: none; max-height: 36%; overflow-y: auto; scrollbar-gutter: stable;
-  padding: 8px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px;
+.split-inspector {
+  width: 430px;
 }
-.split-detail { flex: 1; min-height: 0; scrollbar-gutter: stable; }
+.split-steps {
+  flex: none;
+  max-height: 36%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.split-detail {
+  flex: 1;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
 
 .step-item {
-  width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 9px;
-  border-radius: 8px; border: 1px solid transparent; text-align: left; font-size: 13px;
-  transition: background .12s, border-color .12s;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  text-align: left;
+  font-size: 13px;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
 }
-.step-item:hover { background: var(--ui-bg-muted); }
-.step-item.chosen { background: var(--ui-bg-elevated); border-color: var(--accent); }
-.step-item.failed .step-idx { background: var(--danger-bg); color: var(--danger); }
-.step-name { flex: 1; min-width: 0; font-weight: 550; }
-.step-meta { font-size: 11px; flex: none; }
+.step-item:hover {
+  background: var(--ui-bg-muted);
+}
+.step-item.chosen {
+  background: var(--ui-bg-elevated);
+  border-color: var(--accent);
+}
+.step-item.failed .step-idx {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.step-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 550;
+}
+.step-meta {
+  font-size: 11px;
+  flex: none;
+}
 
-.detail-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-.detail-header-card {
-  padding: 12px; border-radius: 10px; background: var(--ui-bg-muted); border: 1px solid var(--line);
-  display: flex; flex-direction: column; gap: 8px;
+.detail-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-.detail-header-top { display: flex; align-items: center; gap: 10px; }
-.detail-times { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; }
-.box-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.detail-header-card {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-header-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.detail-times {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
 .error-box {
-  padding: 10px 12px; border-radius: 9px;
-  background: var(--danger-bg); border: 1px solid var(--danger-border);
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
 }
 .info-box {
-  padding: 10px 12px; border-radius: 9px;
-  background: var(--ui-bg-muted); border: 1px solid var(--line);
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--line);
 }
-.notif-preview { display: grid; gap: 3px; font-size: 12px; }
-
-.output-section { display: flex; flex-direction: column; gap: 8px; }
-.output-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-
-.kv-list { display: flex; flex-direction: column; gap: 6px; }
-.kv-item {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  padding: 7px 10px; border-radius: 8px; background: var(--ui-bg-muted); border: 1px solid var(--line);
+.notif-preview {
+  display: grid;
+  gap: 3px;
   font-size: 12px;
 }
-.kv-item.stacked { flex-direction: column; align-items: stretch; gap: 6px; }
-.kv-key { display: flex; align-items: center; gap: 6px; color: var(--dim); flex-shrink: 0; }
-.kv-raw-key {
-  font-family: Consolas, monospace; font-size: 10px; padding: 1px 5px;
-  border-radius: 4px; background: var(--surface); border: 1px solid var(--line);
+
+.output-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.kv-val { font-weight: 550; text-align: right; font-family: Consolas, monospace; }
+.output-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kv-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--ui-bg-muted);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+.kv-item.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.kv-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  flex-shrink: 0;
+}
+.kv-raw-key {
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.kv-val {
+  font-weight: 550;
+  text-align: right;
+  font-family: Consolas, monospace;
+}
 .kv-code {
-  margin: 0; padding: 8px; border-radius: 6px; background: var(--surface); border: 1px solid var(--line);
-  font-family: Consolas, monospace; font-size: 11px; overflow: auto; max-height: 240px; white-space: pre-wrap; word-break: break-word;
+  margin: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  overflow: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .detail-empty {
-  height: 100%; min-height: 140px; display: grid; place-items: center; align-content: center; gap: 8px; font-size: 12px;
+  height: 100%;
+  min-height: 140px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  font-size: 12px;
 }
 
 @media (max-width: 900px) {
-  .split-inspector { width: min(360px, calc(100% - 24px)); }
+  .split-inspector {
+    width: min(360px, calc(100% - 24px));
+  }
 }
 </style>

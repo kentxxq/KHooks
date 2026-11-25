@@ -1,11 +1,19 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 import { Storage } from '../src/main/storage'
 import type { Run } from '../src/shared/ipc'
 import type { FlowEdge, FlowNode } from '../src/shared/workflow'
 import {
-  cleanupResources, createEngine, createStore, jsonResponse, llmResponse, storageFile, stubFetch, tempDir,
-  waitForRun, workflow
+  cleanupResources,
+  createEngine,
+  createStore,
+  jsonResponse,
+  llmResponse,
+  storageFile,
+  stubFetch,
+  tempDir,
+  waitForRun,
+  workflow
 } from './helpers'
 
 afterEach(cleanupResources)
@@ -71,12 +79,24 @@ describe('忙碌策略', () => {
 describe('重试与失败出口', () => {
   it('按 retry 次数重试并记录 attempts', async () => {
     let calls = 0
-    const fetcher = stubFetch(() => (++calls < 3 ? new Response(null, { status: 503 }) : new Response(null, { status: 204 })))
+    const fetcher = stubFetch(() =>
+      ++calls < 3 ? new Response(null, { status: 503 }) : new Response(null, { status: 204 })
+    )
     const { store } = await createStore()
     const engine = createEngine({ store, fetcher })
     const nodes: FlowNode[] = [
       { id: 'start', type: 'manual', x: 0, y: 0 },
-      { id: 'send', type: 'http', x: 230, y: 0, method: 'GET', url: 'https://fake_url/x', headers: [], body: '', retry: { count: 2, seconds: 1 } }
+      {
+        id: 'send',
+        type: 'http',
+        x: 230,
+        y: 0,
+        method: 'GET',
+        url: 'https://fake_url/x',
+        headers: [],
+        body: '',
+        retry: { count: 2, seconds: 1 }
+      }
     ]
     await engine.save(workflow('flow', nodes, [{ id: 'next', from: 'start', to: 'send', port: 'next' }]))
     await engine.run('flow', undefined, 'saved')
@@ -92,7 +112,16 @@ describe('重试与失败出口', () => {
     const engine = createEngine({ store, fetcher })
     const nodes: FlowNode[] = [
       { id: 'start', type: 'manual', x: 0, y: 0 },
-      { id: 'send', type: 'http', x: 230, y: 0, method: 'GET', url: 'https://fake_url/x', headers: [], body: '' }
+      {
+        id: 'send',
+        type: 'http',
+        x: 230,
+        y: 0,
+        method: 'GET',
+        url: 'https://fake_url/x',
+        headers: [],
+        body: ''
+      }
     ]
     await engine.save(workflow('flow', nodes, [{ id: 'next', from: 'start', to: 'send', port: 'next' }]))
     await engine.run('flow', undefined, 'saved')
@@ -110,9 +139,21 @@ describe('重试与失败出口', () => {
     const engine = createEngine({ store, fetcher })
     const nodes: FlowNode[] = [
       { id: 'start', type: 'manual', x: 0, y: 0 },
-      { id: 'send', type: 'http', x: 230, y: 0, method: 'GET', url: 'https://fake_url/x', headers: [], body: '' },
       {
-        id: 'fallback', type: 'data', x: 460, y: 0,
+        id: 'send',
+        type: 'http',
+        x: 230,
+        y: 0,
+        method: 'GET',
+        url: 'https://fake_url/x',
+        headers: [],
+        body: ''
+      },
+      {
+        id: 'fallback',
+        type: 'data',
+        x: 460,
+        y: 0,
         value: '{"message":"@{send.error.message}","status":"@{send.error.status}"}'
       }
     ]
@@ -123,9 +164,13 @@ describe('重试与失败出口', () => {
     await engine.save(workflow('flow', nodes, edges))
     await engine.run('flow', undefined, 'saved')
     expect(store.state.runs[0]).toMatchObject({
-      status: 'success', edges: ['next', 'fail'],
-      steps: [{}, { nodeId: 'send', error: 'HTTP 503' },
-        { nodeId: 'fallback', output: { value: { message: 'HTTP 503', status: 503 } } }]
+      status: 'success',
+      edges: ['next', 'fail'],
+      steps: [
+        {},
+        { nodeId: 'send', error: 'HTTP 503' },
+        { nodeId: 'fallback', output: { value: { message: 'HTTP 503', status: 503 } } }
+      ]
     })
   })
 })
@@ -138,10 +183,22 @@ describe('运行记录', () => {
     const nodes: FlowNode[] = [
       { id: 'start', type: 'manual', x: 0, y: 0 },
       {
-        id: 'send', type: 'http', x: 230, y: 0, method: 'POST', url: 'https://fake_url/secret',
-        headers: [{ name: 'Authorization', value: 'Bearer fake_key' }], body: '{"token":"fake_secret"}'
+        id: 'send',
+        type: 'http',
+        x: 230,
+        y: 0,
+        method: 'POST',
+        url: 'https://fake_url/secret',
+        headers: [{ name: 'Authorization', value: 'Bearer fake_key' }],
+        body: '{"token":"fake_secret"}'
       },
-      { id: 'set', type: 'data', x: 460, y: 0, value: '{"body":"@{send.body}","type":"@{send.headers.content-type}"}' }
+      {
+        id: 'set',
+        type: 'data',
+        x: 460,
+        y: 0,
+        value: '{"body":"@{send.body}","type":"@{send.headers.content-type}"}'
+      }
     ]
     const edges: FlowEdge[] = [
       { id: 'next', from: 'start', to: 'send', port: 'next' },
@@ -155,7 +212,9 @@ describe('运行记录', () => {
     expect(run.steps[1].startedAt).toEqual(expect.any(String))
     expect(run.steps[1].finishedAt).toEqual(expect.any(String))
     expect(run.steps[1].details).toEqual({ method: 'POST', host: 'fake_url', status: 200 })
-    expect(run.steps[2].output).toEqual({ value: { body: { secret: 'fake_secret' }, type: 'application/json' } })
+    expect(run.steps[2].output).toEqual({
+      value: { body: { secret: 'fake_secret' }, type: 'application/json' }
+    })
     expect(JSON.stringify(run.workflow)).not.toContain('fake_secret')
     expect(JSON.stringify(run.workflow)).not.toContain('fake_key')
   })
@@ -166,15 +225,39 @@ describe('运行记录', () => {
     const notify = vi.fn()
     const dir = await tempDir('node-')
     const engine = createEngine({
-      store, fetcher,
+      store,
+      fetcher,
       notify,
       ai: () => ({ url: 'https://fake_url/v1', model: 'fake_info', key: 'fake_key' })
     })
     const nodes: FlowNode[] = [
       { id: 'start', type: 'manual', x: 0, y: 0 },
-      { id: 'notify', type: 'notification', x: 230, y: 0, title: '标题 @{start.triggeredAt}', body: '正文 fake_info' },
-      { id: 'llm', type: 'llm', x: 460, y: 0, system: '系统 fake_info', prompt: '提示 fake_info', format: 'text' },
-      { id: 'save', type: 'fileWrite', x: 690, y: 0, path: dir + '/out.txt', format: 'text', content: 'fake_info @{llm.value}' }
+      {
+        id: 'notify',
+        type: 'notification',
+        x: 230,
+        y: 0,
+        title: '标题 @{start.triggeredAt}',
+        body: '正文 fake_info'
+      },
+      {
+        id: 'llm',
+        type: 'llm',
+        x: 460,
+        y: 0,
+        system: '系统 fake_info',
+        prompt: '提示 fake_info',
+        format: 'text'
+      },
+      {
+        id: 'save',
+        type: 'fileWrite',
+        x: 690,
+        y: 0,
+        path: dir + '/out.txt',
+        format: 'text',
+        content: 'fake_info @{llm.value}'
+      }
     ]
     const edges: FlowEdge[] = [
       { id: 'a', from: 'start', to: 'notify', port: 'next' },
@@ -200,8 +283,15 @@ describe('运行记录', () => {
     const flow = workflow('flow', nodes, edges)
     await engine.save(flow)
     const old = (index: number): Run => ({
-      id: 'old-' + index, workflowId: 'flow', name: '旧记录', startedAt: '', finishedAt: '',
-      status: 'success', steps: [], edges: [], workflow: flow
+      id: 'old-' + index,
+      workflowId: 'flow',
+      name: '旧记录',
+      startedAt: '',
+      finishedAt: '',
+      status: 'success',
+      steps: [],
+      edges: [],
+      workflow: flow
     })
     store.state.runs = Array.from({ length: 100 }, (_, index) => old(index))
     await engine.run('flow', undefined, 'saved')
@@ -219,12 +309,15 @@ describe('本地数据', () => {
     const { nodes, edges } = manualChain(1)
     const good = workflow('good', nodes, edges, { name: '好流程' })
     const brokenNodes = [{ id: 'start', type: 'unknown' }]
-    await writeFile(file, JSON.stringify({
-      ...initial.state,
-      workflows: [good, { ...good, id: 'bad', name: '坏流程', nodes: brokenNodes }],
-      components: [{ id: 'c1', name: '坏组件', config: { type: 'unknown' } }],
-      queue: [{ id: 'q1', flow: { ...good, id: 'bad2', nodes: brokenNodes }, payload: {} }]
-    }))
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...initial.state,
+        workflows: [good, { ...good, id: 'bad', name: '坏流程', nodes: brokenNodes }],
+        components: [{ id: 'c1', name: '坏组件', config: { type: 'unknown' } }],
+        queue: [{ id: 'q1', flow: { ...good, id: 'bad2', nodes: brokenNodes }, payload: {} }]
+      })
+    )
     const messages: string[] = []
     const store = new Storage(file, undefined, (message) => messages.push(message))
     await store.open()
@@ -243,20 +336,36 @@ describe('本地数据', () => {
     const { nodes, edges } = manualChain(1)
     const flow = workflow('flow', nodes, edges)
     const running: Run = {
-      id: 'run-1', workflowId: 'flow', name: '运行中', startedAt: '', finishedAt: null,
-      status: 'running', steps: [], edges: [], workflow: flow
+      id: 'run-1',
+      workflowId: 'flow',
+      name: '运行中',
+      startedAt: '',
+      finishedAt: null,
+      status: 'running',
+      steps: [],
+      edges: [],
+      workflow: flow
     }
-    await writeFile(file, JSON.stringify({
-      ...initial.state,
-      workflows: [flow],
-      queue: [{ id: 'task', flow, payload: {}, allowDisabled: false, runId: 'run-1' }],
-      runs: [running]
-    }))
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...initial.state,
+        workflows: [flow],
+        queue: [{ id: 'task', flow, payload: {}, allowDisabled: false, runId: 'run-1' }],
+        runs: [running]
+      })
+    )
     const store = new Storage(file)
     await store.open()
-    expect(store.state.runs[0]).toMatchObject({ status: 'interrupted', finishedAt: expect.any(String) })
+    expect(store.state.runs[0]).toMatchObject({
+      status: 'interrupted',
+      finishedAt: expect.any(String)
+    })
     expect(store.state.queue[0].runId).toBeUndefined()
-    const raw = JSON.parse(await readFile(file, 'utf8')) as { runs: Run[]; queue: { runId?: string }[] }
+    const raw = JSON.parse(await readFile(file, 'utf8')) as {
+      runs: Run[]
+      queue: { runId?: string }[]
+    }
     expect(raw.runs[0].status).toBe('interrupted')
     expect(raw.queue[0].runId).toBeUndefined()
   })
@@ -267,11 +376,22 @@ describe('本地数据', () => {
     const flow = workflow('flow', nodes, edges)
     const initial = new Storage(file)
     await initial.open()
-    await writeFile(file, JSON.stringify({
-      ...initial.state,
-      workflows: [{ ...flow, enabled: true }],
-      queue: [{ id: 'task', flow, payload: { triggeredAt: '2026-11-20T00:00:00.000Z' }, allowDisabled: false, source: 'automatic' }]
-    }))
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...initial.state,
+        workflows: [{ ...flow, enabled: true }],
+        queue: [
+          {
+            id: 'task',
+            flow,
+            payload: { triggeredAt: '2026-11-20T00:00:00.000Z' },
+            allowDisabled: false,
+            source: 'automatic'
+          }
+        ]
+      })
+    )
     const store = new Storage(file)
     await store.open()
     const engine = createEngine({ store })

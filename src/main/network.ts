@@ -14,7 +14,10 @@ export class HttpError extends Error {
 }
 
 export async function fetchData(
-  fetcher: Fetch, url: URL, init: RequestInit, signal: AbortSignal,
+  fetcher: Fetch,
+  url: URL,
+  init: RequestInit,
+  signal: AbortSignal,
   options?: { detectJson?: boolean; onStatus?: (status: number) => void }
 ) {
   const timeout = AbortSignal.timeout(15000)
@@ -30,9 +33,9 @@ export async function fetchData(
     void response.body?.cancel().catch(() => {})
     throw new HttpError(response.status)
   }
-  const headers = Object.fromEntries(Array.from(response.headers).filter(([name]) =>
-    !/auth|cookie|token|secret|api[-_]?key/i.test(name)
-  ))
+  const headers = Object.fromEntries(
+    Array.from(response.headers).filter(([name]) => !/auth|cookie|token|secret|api[-_]?key/i.test(name))
+  )
   let raw: string
   try {
     raw = await readText(response, contentLimit)
@@ -46,7 +49,9 @@ export async function fetchData(
   let body: unknown = raw
   if (!raw && (init.method === 'HEAD' || response.status === 204 || response.status === 205)) body = null
   else if (json || options?.detectJson) {
-    try { body = JSON.parse(raw) } catch {
+    try {
+      body = JSON.parse(raw)
+    } catch {
       if (json) throw new Error('HTTP 响应不是有效的 JSON')
     }
   }
@@ -56,13 +61,26 @@ export async function fetchData(
 type PollNode = Extract<FlowNode, { type: 'httpPoll' }>
 
 export async function pollHttp(node: PollNode, fetcher: Fetch, signal: AbortSignal) {
-  const { status, body } = await fetchData(fetcher, parseHttpUrl(node.url), {
-    method: 'GET', cache: 'no-store', headers: new Headers(node.headers.map(({ name, value }) => [name, value]))
-  }, signal, { detectJson: true })
+  const { status, body } = await fetchData(
+    fetcher,
+    parseHttpUrl(node.url),
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: new Headers(node.headers.map(({ name, value }) => [name, value]))
+    },
+    signal,
+    { detectJson: true }
+  )
   let value: unknown = body
   const path = node.jsonPath.trim()
   if (path && path !== '$') {
-    const result = JSONPath<unknown[]>({ path, json: body as string | number | boolean | object | null, eval: false, wrap: true })
+    const result = JSONPath<unknown[]>({
+      path,
+      json: body as string | number | boolean | object | null,
+      eval: false,
+      wrap: true
+    })
     if (result.length !== 1 || result[0] === undefined) throw new Error('JSONPath 必须匹配一个值')
     value = result[0]
   }
@@ -142,8 +160,13 @@ export function tally(results: SiteResult[], previousIp: string | null, checkedA
   const winnerVotes = Math.max(0, ...Object.values(votes))
   const winners = Object.keys(votes).filter((ip) => votes[ip] === winnerVotes)
   return {
-    results, distinctIpCount: count, votes, winnerIp: winners.length === 1 ? winners[0] : null,
-    winnerVotes, previousIp, checkedAt
+    results,
+    distinctIpCount: count,
+    votes,
+    winnerIp: winners.length === 1 ? winners[0] : null,
+    winnerVotes,
+    previousIp,
+    checkedAt
   }
 }
 
@@ -177,7 +200,9 @@ async function requestCompletion(
   let response: Response
   try {
     response = await fetcher(url, {
-      method: 'POST', redirect: 'error', signal,
+      method: 'POST',
+      redirect: 'error',
+      signal,
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + options.key },
       body: JSON.stringify({ model: options.model, messages })
     })
@@ -203,7 +228,14 @@ export async function testAiService(options: AiOptions, fetcher: Fetch): Promise
   }
 }
 
-export async function runLlm(options: AiOptions, system: string, prompt: string, format: 'text' | 'json', fetcher: Fetch, signal: AbortSignal) {
+export async function runLlm(
+  options: AiOptions,
+  system: string,
+  prompt: string,
+  format: 'text' | 'json',
+  fetcher: Fetch,
+  signal: AbortSignal
+) {
   const messages: Parameters<typeof requestCompletion>[1] = []
   if (system.trim()) messages.push({ role: 'system', content: system })
   if (format === 'json') messages.push({ role: 'system', content: '只返回一个有效的 JSON 值。' })
@@ -211,21 +243,41 @@ export async function runLlm(options: AiOptions, system: string, prompt: string,
   const timeout = AbortSignal.timeout(45000)
   const response = await requestCompletion(options, messages, fetcher, AbortSignal.any([signal, timeout]))
   let content: unknown
-  try { content = JSON.parse(await readText(response, contentLimit))?.choices?.[0]?.message?.content } catch {
+  try {
+    content = JSON.parse(await readText(response, contentLimit))?.choices?.[0]?.message?.content
+  } catch {
     signal.throwIfAborted()
     throw new Error(timeout.aborted ? 'AI 请求超时' : '无法读取 AI 服务响应')
   }
   if (typeof content !== 'string') throw new Error('AI 服务返回的对话响应格式无效')
   if (format === 'text') return content
-  try { return JSON.parse(content) as unknown } catch { throw new Error('模型输出不是有效的 JSON') }
+  try {
+    return JSON.parse(content) as unknown
+  } catch {
+    throw new Error('模型输出不是有效的 JSON')
+  }
 }
 
-export async function generateGraph(options: AiOptions, prompt: string, fetcher: Fetch = fetch, draft?: Graph): Promise<unknown> {
-  const instruction = draft ? aiInstruction + '\n用户消息中的 draft 是待修改的流程数据，按 request 修改并返回完整流程图。保留与修改无关的字段、节点标识、名称、坐标和连线。新增节点使用新的标识。' : aiInstruction
+export async function generateGraph(
+  options: AiOptions,
+  prompt: string,
+  fetcher: Fetch = fetch,
+  draft?: Graph
+): Promise<unknown> {
+  const instruction = draft
+    ? aiInstruction +
+      '\n用户消息中的 draft 是待修改的流程数据，按 request 修改并返回完整流程图。保留与修改无关的字段、节点标识、名称、坐标和连线。新增节点使用新的标识。'
+    : aiInstruction
   const content = draft ? JSON.stringify({ request: prompt, draft }) : prompt
-  const response = await requestCompletion(options, [
-    { role: 'system', content: instruction }, { role: 'user', content }
-  ], fetcher, AbortSignal.timeout(45000))
+  const response = await requestCompletion(
+    options,
+    [
+      { role: 'system', content: instruction },
+      { role: 'user', content }
+    ],
+    fetcher,
+    AbortSignal.timeout(45000)
+  )
   try {
     const payload = JSON.parse(await readText(response, 256_000))
     const content = payload.choices[0].message.content as string

@@ -1,7 +1,7 @@
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { expect, vi } from 'vitest'
+import { expect, vi } from 'vite-plus/test'
 import { Engine } from '../src/main/engine'
 import type { AiOptions, Fetch } from '../src/main/network'
 import { Storage } from '../src/main/storage'
@@ -50,7 +50,14 @@ export function workflow(
   edges: FlowEdge[],
   extra: { name?: string; busyPolicy?: Workflow['busyPolicy'] } = {}
 ): Workflow {
-  return { id, name: extra.name ?? '测试流程', enabled: false, nodes, edges, busyPolicy: extra.busyPolicy }
+  return {
+    id,
+    name: extra.name ?? '测试流程',
+    enabled: false,
+    nodes,
+    edges,
+    busyPolicy: extra.busyPolicy
+  }
 }
 
 export function createEngine(options: {
@@ -82,7 +89,10 @@ export function stubFetch(
 export function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(value), {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) }
+    headers: {
+      'content-type': 'application/json',
+      ...(init.headers as Record<string, string> | undefined)
+    }
   })
 }
 
@@ -117,9 +127,14 @@ export async function cleanupResources(): Promise<void> {
   const active = engines.splice(0)
   for (const engine of active) engine.shutdown()
   await Promise.allSettled(active.map((engine) => engine.drain()))
-  await Promise.all(servers.splice(0).map((server) => new Promise<void>((done) => {
-    server.close(() => done())
-    server.closeAllConnections()
-  })))
+  await Promise.all(
+    servers.splice(0).map(
+      (server) =>
+        new Promise<void>((done) => {
+          server.close(() => done())
+          server.closeAllConnections()
+        })
+    )
+  )
   await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 }

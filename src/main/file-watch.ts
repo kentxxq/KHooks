@@ -17,7 +17,12 @@ async function entry(path: string): Promise<Entry | undefined> {
   }
 }
 
-export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Change) => void, report: (message: string) => void): void {
+export function watchFiles(
+  node: Node,
+  signal: AbortSignal,
+  submit: (change: Change) => void,
+  report: (message: string) => void
+): void {
   const path = normalize(node.path)
   let previous: Map<string, Entry> | undefined
   let directory: string | undefined
@@ -28,7 +33,7 @@ export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Cha
   let lastError = ''
   // quiet:合并窗口,每次事件顺延;limit:同一路径突发的最长等待,超时强制放行一次。
   const quietAt = new Map<string, { quiet: number; limit: number }>()
-  const pathKey = (value: string) => process.platform === 'win32' ? value.toLowerCase() : value
+  const pathKey = (value: string) => (process.platform === 'win32' ? value.toLowerCase() : value)
 
   function refresh(delay = 300): void {
     if (signal.aborted || timer) return
@@ -64,7 +69,9 @@ export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Cha
         if (watcher === current) watcher = undefined
         refresh()
       })
-    } catch { /* 目录重新可访问时由定期扫描重新绑定。 */ }
+    } catch {
+      /* 目录重新可访问时由定期扫描重新绑定。 */
+    }
   }
 
   async function scan(): Promise<void> {
@@ -137,10 +144,14 @@ export function watchFiles(node: Node, signal: AbortSignal, submit: (change: Cha
   const fallback = setInterval(() => {
     if (!timer) void scan()
   }, 2000)
-  signal.addEventListener('abort', () => {
-    watcher?.close()
-    clearTimeout(timer)
-    clearInterval(fallback)
-  }, { once: true })
+  signal.addEventListener(
+    'abort',
+    () => {
+      watcher?.close()
+      clearTimeout(timer)
+      clearInterval(fallback)
+    },
+    { once: true }
+  )
   void scan()
 }

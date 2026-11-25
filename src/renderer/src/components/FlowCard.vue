@@ -16,14 +16,17 @@ const subtitle = computed(() => {
 </script>
 
 <template>
-  <div class="flow-card" :class="[data.node.type, { selected, executed: data.active, failed: data.failed, trigger: isTrigger(data.node) }]"
-    :data-testid="'node-' + data.node.type">
+  <div
+    class="flow-card"
+    :class="[data.node.type, { selected, executed: data.active, failed: data.failed, trigger: isTrigger(data.node) }]"
+    :data-testid="'node-' + data.node.type"
+  >
     <Handle v-if="!isTrigger(data.node)" id="in" type="target" :position="Position.Left" />
     <div class="flow-card-head">
       <span class="node-icon" :class="data.node.type"><UIcon :name="nodeIcons[data.node.type]" mode="svg" /></span>
       <span class="node-titles">
         <span :title="name">{{ name || nodeNames[data.node.type] }}</span>
-        <small>{{ name ? nodeNames[data.node.type] : (isTrigger(data.node) ? '触发器' : '执行节点') }}</small>
+        <small>{{ name ? nodeNames[data.node.type] : isTrigger(data.node) ? '触发器' : '执行节点' }}</small>
       </span>
       <UIcon v-if="data.active" class="step-mark" :name="data.failed ? 'i-lucide-circle-x' : 'i-lucide-circle-check'" />
     </div>

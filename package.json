@@ -1,19 +1,20 @@
 {
   "name": "khooks",
-  "productName": "KHooks",
   "version": "0.9.1",
   "private": true,
-  "packageManager": "pnpm@12.21.0",
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "install-electron",
     "dev": "electron-vite dev --watch",
     "build": "electron-vite build",
+    "check": "vp check",
+    "check:fix": "vp check --fix",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest run",
+    "test": "vp test run",
     "test:e2e": "playwright test",
     "build:windows-events": "cargo build --manifest-path native/windows-events/Cargo.toml --release --target-dir debug/tmpfile-AI-rust && node -e \"const fs = require('node:fs'); fs.mkdirSync('debug/tmpfile-AI-windows-events', { recursive: true }); fs.copyFileSync('debug/tmpfile-AI-rust/release/WindowsEvents.exe', 'debug/tmpfile-AI-windows-events/WindowsEvents.exe')\"",
-    "package:win": "vp run build:windows-events && electron-builder --win nsis --x64 --publish never"
+    "package:win": "vp run build:windows-events && electron-builder --win nsis --x64 --publish never",
+    "prepare": "vp config --no-agent"
   },
   "dependencies": {
     "electron-updater": "^6.8.3",
@@ -48,10 +49,12 @@
     "resedit": "1.7.2",
     "tailwindcss": "^4.0.0",
     "typescript": "~5.9.3",
-    "vite": "^8.3.4",
-    "vitest": "^4.0.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
     "vue": "^3.5.44",
     "vue-router": "^4.6.0",
     "vue-tsc": "^3.3.13"
-  }
+  },
+  "packageManager": "pnpm@12.21.0",
+  "productName": "KHooks"
 }

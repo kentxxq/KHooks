@@ -21,8 +21,16 @@ async function readEndpoint(profile) {
   try {
     const endpoint = JSON.parse(await readFile(join(profile, 'workflow-cli.json'), 'utf8'))
     const { port, token, pid } = endpoint
-    if (!Number.isInteger(port) || port < 1 || port > 65535 || typeof token !== 'string' ||
-      !/^[0-9a-f]{64}$/.test(token) || !Number.isInteger(pid) || pid <= 0) throw new Error()
+    if (
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535 ||
+      typeof token !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(token) ||
+      !Number.isInteger(pid) ||
+      pid <= 0
+    )
+      throw new Error()
     process.kill(pid, 0)
     return { port, token }
   } catch {
@@ -40,8 +48,13 @@ async function call(endpoint, path, body) {
       headers['Content-Length'] = body.length
     }
     const connection = request({
-      hostname: '127.0.0.1', port: endpoint.port, path, method: body ? 'POST' : 'GET', headers,
-      agent: false, signal: AbortSignal.timeout(15000)
+      hostname: '127.0.0.1',
+      port: endpoint.port,
+      path,
+      method: body ? 'POST' : 'GET',
+      headers,
+      agent: false,
+      signal: AbortSignal.timeout(15000)
     })
     const received = new Promise((resolve, reject) => {
       connection.once('response', resolve)
@@ -69,9 +82,14 @@ async function call(endpoint, path, body) {
 async function main() {
   let args
   try {
-    args = parseArgs({ allowPositionals: true, options: {
-      enable: { type: 'boolean' }, 'profile-path': { type: 'string' }, help: { type: 'boolean', short: 'h' }
-    } })
+    args = parseArgs({
+      allowPositionals: true,
+      options: {
+        enable: { type: 'boolean' },
+        'profile-path': { type: 'string' },
+        help: { type: 'boolean', short: 'h' }
+      }
+    })
   } catch {
     throw new Error(usage)
   }
@@ -80,8 +98,13 @@ async function main() {
     return
   }
   const [resource, action, value] = args.positionals
-  if (args.positionals.length !== 3 || resource !== 'workflow' || !value ||
-    (action !== 'create' && (action !== 'get' || args.values.enable)) || args.values['profile-path'] === '') {
+  if (
+    args.positionals.length !== 3 ||
+    resource !== 'workflow' ||
+    !value ||
+    (action !== 'create' && (action !== 'get' || args.values.enable)) ||
+    args.values['profile-path'] === ''
+  ) {
     throw new Error(usage)
   }
   if (action === 'get' && !/^[A-Za-z0-9_-]{1,80}$/.test(value)) throw new Error('流程 ID 无效。')

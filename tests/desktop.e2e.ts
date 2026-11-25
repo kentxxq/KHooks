@@ -1,7 +1,14 @@
 import { createServer as createHttpServer, type Server } from 'node:http'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Locator,
+  type Page
+} from '@playwright/test'
 import type { ViteDevServer } from 'vite'
 
 let application: ElectronApplication | undefined
@@ -20,6 +27,8 @@ async function wire(page: Page, from: Locator, to: Locator): Promise<void> {
   await page.mouse.up()
 }
 
+// Playwright 要求 fixture 参数使用对象解构语法。
+// oxlint-disable-next-line no-empty-pattern
 test.afterEach(async ({}, info) => {
   try {
     if (info.status !== info.expectedStatus && application) {
@@ -28,10 +37,14 @@ test.afterEach(async ({}, info) => {
   } finally {
     const activeReceiver = receiver
     await Promise.allSettled([
-      application?.close(), vite?.close(), activeReceiver ? new Promise<void>((done) => {
-        activeReceiver.close(() => done())
-        activeReceiver.closeAllConnections()
-      }) : undefined
+      application?.close(),
+      vite?.close(),
+      activeReceiver
+        ? new Promise<void>((done) => {
+            activeReceiver.close(() => done())
+            activeReceiver.closeAllConnections()
+          })
+        : undefined
     ])
   }
 })
@@ -39,16 +52,25 @@ test.afterEach(async ({}, info) => {
 test('在开发版画布编排公网 IP 变化流程并从运行记录查看执行路径', async () => {
   await mkdir('debug', { recursive: true })
   const profile = await mkdtemp(resolve('debug/tmpfile-AI-electron-profile-'))
-  await writeFile(join(profile, 'khooks.json'), JSON.stringify({
-    version: 1, workflows: [], baselines: {}, samples: {}, runs: [],
-    ai: { url: '', model: '', encryptedKey: '' }
-  }))
+  await writeFile(
+    join(profile, 'khooks.json'),
+    JSON.stringify({
+      version: 1,
+      workflows: [],
+      baselines: {},
+      samples: {},
+      runs: [],
+      ai: { url: '', model: '', encryptedKey: '' }
+    })
+  )
   const { resolveConfig } = await import('electron-vite')
   const { createServer } = await import('vite')
   const config = (await resolveConfig({ root: process.cwd() }, 'serve', 'development')).config?.renderer
   if (!config) throw new Error('缺少 Electron 渲染进程配置')
   vite = await createServer({
-    ...config, configFile: false, server: { ...config.server, host: '127.0.0.1', port: 0 }
+    ...config,
+    configFile: false,
+    server: { ...config.server, host: '127.0.0.1', port: 0 }
   })
   await vite.listen()
   const url = vite.resolvedUrls?.local[0]
@@ -137,9 +159,12 @@ test('在开发版画布编排公网 IP 变化流程并从运行记录查看执�
   await expect(page.getByText('3 个节点 · 2 条连线')).toBeVisible()
   await page.getByLabel('请求方法').selectOption('POST')
   await page.getByLabel('请求地址').fill('http://127.0.0.1:' + address.port + '/changed')
-  await page.getByLabel('JSON 请求体').fill(JSON.stringify({
-    ip: '@{' + triggerId + '.winnerIp}', count: '@{' + triggerId + '.distinctIpCount}'
-  }))
+  await page.getByLabel('JSON 请求体').fill(
+    JSON.stringify({
+      ip: '@{' + triggerId + '.winnerIp}',
+      count: '@{' + triggerId + '.distinctIpCount}'
+    })
+  )
 
   const nodePosition = await http.boundingBox()
   if (!nodePosition) throw new Error('找不到可拖动的 HTTP 节点')
@@ -161,7 +186,10 @@ test('在开发版画布编排公网 IP 变化流程并从运行记录查看执�
   }, '203.0.113.11')
   await expect.poll(() => captures).toEqual([{ path: '/changed', body: { ip: '203.0.113.11', count: 1 } }])
   await page.locator('main').getByRole('link', { name: '运行记录' }).click()
-  await page.locator('main').getByRole('link', { name: /公网地址事件/ }).click()
+  await page
+    .locator('main')
+    .getByRole('link', { name: /公网地址事件/ })
+    .click()
   await expect(page.getByText('成功', { exact: true })).toBeVisible()
   await expect(page.locator('.flow-card.executed')).toHaveCount(3)
   await expect(page.locator('.execution-edge')).toHaveCount(2)

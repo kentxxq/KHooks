@@ -3,12 +3,23 @@ import { dirname } from 'node:path'
 import writeFileAtomic from 'write-file-atomic'
 import type { IpSample, Run, RunSource, Theme } from '../shared/ipc'
 import {
-  componentSchema, createSiteConfig, formatFieldRef, mapNodeTemplates, workflowSchema,
-  type NodeComponent, type SiteConfig, type Workflow
+  componentSchema,
+  createSiteConfig,
+  formatFieldRef,
+  mapNodeTemplates,
+  workflowSchema,
+  type NodeComponent,
+  type SiteConfig,
+  type Workflow
 } from '../shared/workflow'
 
 export type QueuedTask = {
-  id: string; flow: Workflow; payload: unknown; allowDisabled: boolean; runId?: string; source?: RunSource
+  id: string
+  flow: Workflow
+  payload: unknown
+  allowDisabled: boolean
+  runId?: string
+  source?: RunSource
 }
 
 export type State = {
@@ -44,8 +55,17 @@ function migrateTemplate(value: string): string {
 
 export class Storage {
   state: State = {
-    version: 2, theme: 'light', autoCheckUpdate: true, workflows: [], components: [], baselines: {}, samples: {}, runs: [],
-    pollBaselines: {}, clockDates: {}, queue: [],
+    version: 2,
+    theme: 'light',
+    autoCheckUpdate: true,
+    workflows: [],
+    components: [],
+    baselines: {},
+    samples: {},
+    runs: [],
+    pollBaselines: {},
+    clockDates: {},
+    queue: [],
     ai: { url: '', model: '', encryptedKey: '' }
   }
   private pending: Promise<unknown> = Promise.resolve()
@@ -66,8 +86,14 @@ export class Storage {
       throw error
     }
     const loaded: Omit<State, 'version'> & { version: 1 | 2 } = JSON.parse(raw)
-    if ((loaded.version !== 1 && loaded.version !== 2) || !Array.isArray(loaded.workflows) || !Array.isArray(loaded.runs) ||
-        !loaded.samples || !loaded.baselines || !loaded.ai) {
+    if (
+      (loaded.version !== 1 && loaded.version !== 2) ||
+      !Array.isArray(loaded.workflows) ||
+      !Array.isArray(loaded.runs) ||
+      !loaded.samples ||
+      !loaded.baselines ||
+      !loaded.ai
+    ) {
       throw new Error('本地数据格式无效')
     }
     const state: State = { ...loaded, version: 2 }
@@ -138,7 +164,12 @@ export class Storage {
     state.theme = state.theme === 'dark' ? 'dark' : 'light'
     state.autoCheckUpdate = typeof loaded.autoCheckUpdate === 'boolean' ? loaded.autoCheckUpdate : true
     this.state = state
-    if (migrated || dropped || state.queue.some((task) => task.runId) || state.runs.some((run) => run.status === 'running')) {
+    if (
+      migrated ||
+      dropped ||
+      state.queue.some((task) => task.runId) ||
+      state.runs.some((run) => run.status === 'running')
+    ) {
       await this.change((draft) => {
         for (const task of draft.queue) delete task.runId
         for (const run of draft.runs.filter((run) => run.status === 'running')) {

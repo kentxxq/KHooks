@@ -1,5 +1,5 @@
 import { BlockList, isIPv4 } from 'node:net'
-import { expect, it } from 'vitest'
+import { expect, it } from 'vite-plus/test'
 import { probe } from '../src/main/network'
 import { createSiteConfig, siteId, sites, type SiteConfig } from '../src/shared/workflow'
 
@@ -32,11 +32,15 @@ const siteConfigs = siteId.options.flatMap((id) => {
   return configs.map((config) => ({ ...config, name: site.name }))
 })
 
-it.concurrent.each(siteConfigs)('$name（$mode）返回公网 IPv4', async ({ id, mode, path }) => {
-  const { ip, error } = await probe({ id, mode, path })
-  if (!ip || !isIPv4(ip)) throw new Error(error ?? '站点未返回有效 IPv4')
+it.concurrent.each(siteConfigs)(
+  '$name（$mode）返回公网 IPv4',
+  async ({ id, mode, path }) => {
+    const { ip, error } = await probe({ id, mode, path })
+    if (!ip || !isIPv4(ip)) throw new Error(error ?? '站点未返回有效 IPv4')
 
-  // 这两个任播地址可全球到达，属于 192.0.0.0/24 的例外。
-  const publiclyReachable = ip === '192.0.0.9' || ip === '192.0.0.10' || !nonPublicIpv4.check(ip)
-  expect(publiclyReachable, `站点返回非公网 IPv4：${ip}`).toBe(true)
-}, 10_000)
+    // 这两个任播地址可全球到达，属于 192.0.0.0/24 的例外。
+    const publiclyReachable = ip === '192.0.0.9' || ip === '192.0.0.10' || !nonPublicIpv4.check(ip)
+    expect(publiclyReachable, `站点返回非公网 IPv4：${ip}`).toBe(true)
+  },
+  10_000
+)

@@ -14,13 +14,19 @@ export function parseRunnableGraph(input: unknown): Graph {
 }
 
 export class WorkflowEnableError extends Error {
-  constructor(readonly workflowId: string, cause: unknown) {
+  constructor(
+    readonly workflowId: string,
+    cause: unknown
+  ) {
     super('流程已保存，但启用失败：' + (cause instanceof Error ? cause.message : String(cause)), { cause })
   }
 }
 
 export class Workflows {
-  constructor(private readonly store: Storage, private readonly engine: Engine) {}
+  constructor(
+    private readonly store: Storage,
+    private readonly engine: Engine
+  ) {}
 
   get(id: string): Workflow | undefined {
     return this.store.state.workflows.find((flow) => flow.id === id)

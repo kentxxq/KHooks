@@ -34,15 +34,27 @@ test('安装版关窗后与开发版并行运行，各自保持单实例和独�
     await login.setChecked(!restoreLogin)
     await page.getByRole('button', { name: '保存设置' }).click()
     await expect(page.getByRole('status')).toHaveText('已保存')
-    expect(await application.evaluate(({ app }) => app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin)).toBe(!restoreLogin)
+    expect(await application.evaluate(({ app }) => app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin)).toBe(
+      !restoreLogin
+    )
     await page.screenshot({ path: 'debug/tmpfile-AI-installed-settings.png' })
 
     await page.evaluate(async () => {
       await window.khooks.save({
-        id: 'installed-ip', name: '安装版轮询', enabled: false,
+        id: 'installed-ip',
+        name: '安装版轮询',
+        enabled: false,
         nodes: [
           { id: 'ip', type: 'ip', seconds: 1, sites: [{ id: 'ipify', mode: 'text', path: '' }], x: 0, y: 0 },
-          { id: 'condition', type: 'condition', field: 'ip.distinctIpCount', operator: 'exists', value: '', x: 240, y: 0 }
+          {
+            id: 'condition',
+            type: 'condition',
+            field: 'ip.distinctIpCount',
+            operator: 'exists',
+            value: '',
+            x: 240,
+            y: 0
+          }
         ],
         edges: [{ id: 'edge', from: 'ip', to: 'condition', port: 'next' }]
       })
@@ -63,9 +75,12 @@ test('安装版关窗后与开发版并行运行，各自保持单实例和独�
     const devWindow = await dev.browserWindow(devPage)
     await expect(devPage.getByRole('heading', { name: '流程', exact: true })).toBeVisible()
     expect(await devWindow.evaluate((window) => window.getTitle())).toBe('KHooks Dev')
-    expect(await dev.evaluate(({ app }) => ({
-      userData: app.getPath('userData'), sessionData: app.getPath('sessionData')
-    }))).toEqual({ userData: devProfile, sessionData: devProfile })
+    expect(
+      await dev.evaluate(({ app }) => ({
+        userData: app.getPath('userData'),
+        sessionData: app.getPath('sessionData')
+      }))
+    ).toEqual({ userData: devProfile, sessionData: devProfile })
     await expect(devPage.getByText('暂无流程', { exact: true })).toBeVisible()
     await devPage.getByRole('button', { name: '新建流程' }).first().click()
     await expect(devPage.getByLabel('流程名称')).toHaveValue('未命名流程')
@@ -99,9 +114,10 @@ test('安装版关窗后与开发版并行运行，各自保持单实例和独�
     await expect(page.getByText('成功', { exact: true })).toHaveCount(2)
   } finally {
     try {
-      if (restoreLogin !== undefined) await application.evaluate(({ app }, value) => {
-        app.setLoginItemSettings({ openAtLogin: value, args: ['--hidden'] })
-      }, restoreLogin)
+      if (restoreLogin !== undefined)
+        await application.evaluate(({ app }, value) => {
+          app.setLoginItemSettings({ openAtLogin: value, args: ['--hidden'] })
+        }, restoreLogin)
     } finally {
       await Promise.all([dev?.close(), application.close()])
     }

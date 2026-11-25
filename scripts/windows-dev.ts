@@ -14,7 +14,8 @@ export async function prepareWindowsDevExecutable(root: string): Promise<string>
   const cacheKey = createHash('sha256')
     .update([developmentProductName, source, sourceInfo.mtimeMs, sourceInfo.size].join('\n'))
     .update(iconData)
-    .digest('hex').slice(0, 12)
+    .digest('hex')
+    .slice(0, 12)
   const debug = join(root, 'debug')
   const runtime = join(debug, windowsDevelopmentRuntimePrefix + cacheKey)
   // Electron 用 exe 文件名判断是否已打包，开发版保留 electron.exe。
@@ -34,7 +35,8 @@ export async function prepareWindowsDevExecutable(root: string): Promise<string>
     for (const version of versions) {
       for (const locale of version.getAllLanguagesForStringValues()) {
         version.setStringValues(locale, {
-          ProductName: developmentProductName, FileDescription: developmentProductName
+          ProductName: developmentProductName,
+          FileDescription: developmentProductName
         })
       }
       version.outputToResourceEntries(resources.entries)

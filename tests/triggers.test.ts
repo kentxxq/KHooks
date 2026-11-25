@@ -2,13 +2,22 @@ import { EventEmitter } from 'node:events'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test'
 import { watchFiles } from '../src/main/file-watch'
 import { Storage } from '../src/main/storage'
 import { WindowsEvents, eventSchema } from '../src/main/windows-events'
 import type { FlowEdge, FlowNode } from '../src/shared/workflow'
 import {
-  cleanupResources, createEngine, createStore, fakeSystem, jsonResponse, listen, stubFetch, tempDir, waitForRun, workflow
+  cleanupResources,
+  createEngine,
+  createStore,
+  fakeSystem,
+  jsonResponse,
+  listen,
+  stubFetch,
+  tempDir,
+  waitForRun,
+  workflow
 } from './helpers'
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }))
@@ -24,7 +33,10 @@ function dataNode(id = 'set'): FlowNode {
 }
 
 function chain(trigger: FlowNode, next: FlowNode = dataNode()): { nodes: FlowNode[]; edges: FlowEdge[] } {
-  return { nodes: [trigger, next], edges: [{ id: 'next', from: trigger.id, to: next.id, port: 'next' }] }
+  return {
+    nodes: [trigger, next],
+    edges: [{ id: 'next', from: trigger.id, to: next.id, port: 'next' }]
+  }
 }
 
 const site = { id: 'ipify', mode: 'text', path: '' } as const
@@ -37,22 +49,33 @@ describe('manual 触发器', () => {
       { id: 'start', type: 'manual', x: 0, y: 0 },
       { id: 'set', type: 'data', x: 230, y: 0, value: '1' }
     ]
-    const graph = { name: '手动', nodes, edges: [{ id: 'next', from: 'start', to: 'set', port: 'next' as const }] }
+    const graph = {
+      name: '手动',
+      nodes,
+      edges: [{ id: 'next', from: 'start', to: 'set', port: 'next' as const }]
+    }
     await engine.save(workflow('flow', graph.nodes, graph.edges))
 
     await expect(engine.run('flow')).rejects.toThrow('请先启用流程')
     await engine.run('flow', undefined, 'saved')
     expect(store.state.runs[0]).toMatchObject({
-      source: 'manual', status: 'success',
-      steps: [{ nodeId: 'start', attempts: 1 }, { nodeId: 'set', output: { value: 1 } }]
+      source: 'manual',
+      status: 'success',
+      steps: [
+        { nodeId: 'start', attempts: 1 },
+        { nodeId: 'set', output: { value: 1 } }
+      ]
     })
 
     const draft = {
       ...graph,
-      nodes: nodes.map((node) => node.type === 'data' ? { ...node, value: '2' } : node)
+      nodes: nodes.map((node) => (node.type === 'data' ? { ...node, value: '2' } : node))
     }
     await engine.run('flow', draft, 'preview')
-    expect(store.state.runs[0]).toMatchObject({ source: 'preview', steps: [{}, { output: { value: 2 } }] })
+    expect(store.state.runs[0]).toMatchObject({
+      source: 'preview',
+      steps: [{}, { output: { value: 2 } }]
+    })
     // 草稿试跑不写回已保存流程。
     expect(store.state.workflows[0].nodes[1]).toMatchObject({ value: '1' })
 
@@ -65,7 +88,13 @@ describe('manual 触发器', () => {
     const engine = createEngine({ store })
     const dir = await tempDir('watch-')
     const graph = chain({
-      id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory', events: ['added']
+      id: 'watch',
+      type: 'fileWatch',
+      x: 0,
+      y: 0,
+      path: dir,
+      target: 'directory',
+      events: ['added']
     })
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.run('flow', undefined, 'saved')
@@ -93,7 +122,14 @@ describe('interval 触发器', () => {
     vi.setSystemTime(beforeTarget)
     const { store, file } = await createStore()
     const engine = createEngine({ store })
-    const graph = chain({ id: 'clock', type: 'interval', x: 0, y: 0, seconds: 60, clock: { time: '09:30' } })
+    const graph = chain({
+      id: 'clock',
+      type: 'interval',
+      x: 0,
+      y: 0,
+      seconds: 60,
+      clock: { time: '09:30' }
+    })
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.enable('flow', true)
     await vi.advanceTimersByTimeAsync(1000)
@@ -119,7 +155,11 @@ describe('interval 触发器', () => {
     const { store } = await createStore()
     const engine = createEngine({ store })
     const graph = chain({
-      id: 'clock', type: 'interval', x: 0, y: 0, seconds: 60,
+      id: 'clock',
+      type: 'interval',
+      x: 0,
+      y: 0,
+      seconds: 60,
       clock: { time: '09:30', days: [(start.getDay() + 1) % 7] }
     })
     await engine.save(workflow('flow', graph.nodes, graph.edges))
@@ -139,24 +179,37 @@ describe('ip 触发器', () => {
     const fetcher = stubFetch((url) => new Response(url.hostname === 'api.ipify.org' ? ipify : aws))
     const engine = createEngine({ store, fetcher })
     const graph = chain({
-      id: 'ip', type: 'ip', x: 0, y: 0, seconds: 60,
+      id: 'ip',
+      type: 'ip',
+      x: 0,
+      y: 0,
+      seconds: 60,
       sites: [site, { id: 'aws', mode: 'text', path: '' }]
     })
     await engine.save(workflow('flow', graph.nodes, graph.edges))
 
     await engine.run('flow', undefined, 'saved')
-    expect(store.state.runs[0].steps[0].output).toMatchObject({ winnerIp: null, distinctIpCount: 2 })
+    expect(store.state.runs[0].steps[0].output).toMatchObject({
+      winnerIp: null,
+      distinctIpCount: 2
+    })
     expect(store.state.baselines).not.toHaveProperty('flow')
 
     aws = ipify
     await engine.run('flow', undefined, 'saved')
-    expect(store.state.runs[0].steps[0].output).toMatchObject({ previousIp: null, winnerIp: ipify })
+    expect(store.state.runs[0].steps[0].output).toMatchObject({
+      previousIp: null,
+      winnerIp: ipify
+    })
     expect(store.state.baselines.flow).toBe(ipify)
 
     ipify = '203.0.113.12'
     aws = ipify
     await engine.run('flow', undefined, 'saved')
-    expect(store.state.runs[0].steps[0].output).toMatchObject({ previousIp: '203.0.113.10', winnerIp: ipify })
+    expect(store.state.runs[0].steps[0].output).toMatchObject({
+      previousIp: '203.0.113.10',
+      winnerIp: ipify
+    })
   })
 })
 
@@ -170,8 +223,23 @@ describe('httpPoll 触发器', () => {
     const { store } = await createStore()
     const engine = createEngine({ store })
     const graph = chain(
-      { id: 'poll', type: 'httpPoll', x: 0, y: 0, seconds: 1, url: base + '/value', headers: [], jsonPath: '$.value' },
-      { id: 'set', type: 'data', x: 230, y: 0, value: '{"v":"@{poll.value}","old":"@{poll.previous}"}' }
+      {
+        id: 'poll',
+        type: 'httpPoll',
+        x: 0,
+        y: 0,
+        seconds: 1,
+        url: base + '/value',
+        headers: [],
+        jsonPath: '$.value'
+      },
+      {
+        id: 'set',
+        type: 'data',
+        x: 230,
+        y: 0,
+        value: '{"v":"@{poll.value}","old":"@{poll.previous}"}'
+      }
     )
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.enable('flow', true)
@@ -180,7 +248,10 @@ describe('httpPoll 触发器', () => {
 
     payload = { value: 2 }
     const run = await waitForRun(store)
-    expect(run).toMatchObject({ source: 'automatic', steps: [{}, { output: { value: { v: 2, old: 1 } } }] })
+    expect(run).toMatchObject({
+      source: 'automatic',
+      steps: [{}, { output: { value: { v: 2, old: 1 } } }]
+    })
     expect(store.state.pollBaselines.flow).toBe(2)
 
     await new Promise((done) => setTimeout(done, 1300))
@@ -192,8 +263,14 @@ describe('httpPoll 触发器', () => {
     const fetcher = stubFetch(() => jsonResponse({ v: 1 }))
     const engine = createEngine({ store, fetcher })
     const graph = chain({
-      id: 'poll', type: 'httpPoll', x: 0, y: 0, seconds: 60,
-      url: 'https://fake_url/v1', headers: [], jsonPath: '$.v'
+      id: 'poll',
+      type: 'httpPoll',
+      x: 0,
+      y: 0,
+      seconds: 60,
+      url: 'https://fake_url/v1',
+      headers: [],
+      jsonPath: '$.v'
     })
     const flow = workflow('flow', graph.nodes, graph.edges)
     await engine.save(flow)
@@ -202,7 +279,7 @@ describe('httpPoll 触发器', () => {
     await engine.enable('flow', false)
     const changed = {
       ...flow,
-      nodes: flow.nodes.map((node) => node.type === 'httpPoll' ? { ...node, url: 'https://fake_url/v2' } : node)
+      nodes: flow.nodes.map((node) => (node.type === 'httpPoll' ? { ...node, url: 'https://fake_url/v2' } : node))
     }
     await engine.save(changed)
     expect(store.state.pollBaselines).not.toHaveProperty('flow')
@@ -216,26 +293,46 @@ describe('fileWatch 触发器', () => {
     await writeFile(file, 'one')
     const changes: { event: string; path: string; isDirectory: boolean }[] = []
     const controller = new AbortController()
-    watchFiles({
-      id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory',
-      events: ['added', 'changed', 'removed']
-    }, controller.signal, (change) => changes.push(change), () => {})
+    watchFiles(
+      {
+        id: 'watch',
+        type: 'fileWatch',
+        x: 0,
+        y: 0,
+        path: dir,
+        target: 'directory',
+        events: ['added', 'changed', 'removed']
+      },
+      controller.signal,
+      (change) => changes.push(change),
+      () => {}
+    )
     try {
       await new Promise((done) => setTimeout(done, 500))
       expect(changes).toEqual([])
 
       await writeFile(file, 'one changed')
-      await vi.waitFor(() => expect(changes.map((item) => item.event)).toContain('changed'), { timeout: 3000 })
-      expect(changes.find((item) => item.event === 'changed')).toMatchObject({ path: file, isDirectory: false })
+      await vi.waitFor(() => expect(changes.map((item) => item.event)).toContain('changed'), {
+        timeout: 3000
+      })
+      expect(changes.find((item) => item.event === 'changed')).toMatchObject({
+        path: file,
+        isDirectory: false
+      })
 
       await new Promise((done) => setTimeout(done, 500))
       const added = join(dir, 'b.txt')
       await writeFile(added, 'two')
-      await vi.waitFor(() => expect(changes.some((item) => item.event === 'added' && item.path === added)).toBe(true), { timeout: 3000 })
+      await vi.waitFor(() => expect(changes.some((item) => item.event === 'added' && item.path === added)).toBe(true), {
+        timeout: 3000
+      })
 
       await new Promise((done) => setTimeout(done, 500))
       await rm(file)
-      await vi.waitFor(() => expect(changes.some((item) => item.event === 'removed' && item.path === file)).toBe(true), { timeout: 3000 })
+      await vi.waitFor(
+        () => expect(changes.some((item) => item.event === 'removed' && item.path === file)).toBe(true),
+        { timeout: 3000 }
+      )
     } finally {
       controller.abort()
     }
@@ -245,14 +342,28 @@ describe('fileWatch 触发器', () => {
     const dir = await tempDir('watch-')
     const changes: { event: string; path: string; isDirectory: boolean }[] = []
     const controller = new AbortController()
-    watchFiles({ id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory', events: ['added'] },
-      controller.signal, (change) => changes.push(change), () => {})
+    watchFiles(
+      {
+        id: 'watch',
+        type: 'fileWatch',
+        x: 0,
+        y: 0,
+        path: dir,
+        target: 'directory',
+        events: ['added']
+      },
+      controller.signal,
+      (change) => changes.push(change),
+      () => {}
+    )
     try {
       await new Promise((done) => setTimeout(done, 500))
       const child = join(dir, 'child')
       await mkdir(child)
       await writeFile(join(child, 'inner.txt'), 'inner')
-      await vi.waitFor(() => expect(changes.some((item) => item.event === 'added' && item.path === child)).toBe(true), { timeout: 3000 })
+      await vi.waitFor(() => expect(changes.some((item) => item.event === 'added' && item.path === child)).toBe(true), {
+        timeout: 3000
+      })
       expect(changes.every((item) => item.event === 'added')).toBe(true)
       await new Promise((done) => setTimeout(done, 800))
       // 目录模式只观察一层，子目录内部的变化不上报。
@@ -269,7 +380,15 @@ describe('fileWatch 触发器', () => {
     const { store } = await createStore()
     const engine = createEngine({ store })
     const graph = chain(
-      { id: 'watch', type: 'fileWatch', x: 0, y: 0, path: dir, target: 'directory', events: ['changed'] },
+      {
+        id: 'watch',
+        type: 'fileWatch',
+        x: 0,
+        y: 0,
+        path: dir,
+        target: 'directory',
+        events: ['changed']
+      },
       { id: 'set', type: 'data', x: 230, y: 0, value: '{"event":"@{watch.event}"}' }
     )
     await engine.save(workflow('flow', graph.nodes, graph.edges))
@@ -278,17 +397,27 @@ describe('fileWatch 触发器', () => {
     await writeFile(file, 'two')
     const run = await waitForRun(store)
     expect(run).toMatchObject({
-      source: 'automatic', status: 'success',
-      steps: [{ nodeId: 'watch', output: { event: 'changed', path: file } }, { nodeId: 'set', output: { value: { event: 'changed' } } }]
+      source: 'automatic',
+      status: 'success',
+      steps: [
+        { nodeId: 'watch', output: { event: 'changed', path: file } },
+        { nodeId: 'set', output: { value: { event: 'changed' } } }
+      ]
     })
   })
 })
 
 describe('system 触发器', () => {
   it('事件 schema 归一化 appId 并拒绝非法事件', () => {
-    const base = { event: 'playing' as const, state: true, triggeredAt: '2026-11-20T00:00:00.000Z' }
+    const base = {
+      event: 'playing' as const,
+      state: true,
+      triggeredAt: '2026-11-20T00:00:00.000Z'
+    }
     expect(eventSchema.parse(base)).toMatchObject({ appId: null })
-    expect(eventSchema.parse({ ...base, appId: 'fake_info' })).toMatchObject({ appId: 'fake_info' })
+    expect(eventSchema.parse({ ...base, appId: 'fake_info' })).toMatchObject({
+      appId: 'fake_info'
+    })
     expect(() => eventSchema.parse({ ...base, event: 'offline', state: 'yes' })).toThrow()
   })
 
@@ -298,26 +427,48 @@ describe('system 触发器', () => {
     const engine = createEngine({ store, system })
     const graph = chain(
       { id: 'sys', type: 'system', x: 0, y: 0, events: ['playing'] },
-      { id: 'set', type: 'data', x: 230, y: 0, value: '{"event":"@{sys.event}","state":"@{sys.state}"}' }
+      {
+        id: 'set',
+        type: 'data',
+        x: 230,
+        y: 0,
+        value: '{"event":"@{sys.event}","state":"@{sys.state}"}'
+      }
     )
     await engine.save(workflow('flow', graph.nodes, graph.edges))
     await engine.enable('flow', true)
-    system.emit({ event: 'stopped', state: false, appId: null, triggeredAt: new Date().toISOString() })
+    system.emit({
+      event: 'stopped',
+      state: false,
+      appId: null,
+      triggeredAt: new Date().toISOString()
+    })
     await new Promise((done) => setTimeout(done, 100))
     expect(store.state.runs).toHaveLength(0)
 
-    system.emit({ event: 'playing', state: true, appId: null, triggeredAt: new Date().toISOString() })
+    system.emit({
+      event: 'playing',
+      state: true,
+      appId: null,
+      triggeredAt: new Date().toISOString()
+    })
     const run = await waitForRun(store)
     expect(run).toMatchObject({
-      source: 'automatic', status: 'success',
-      steps: [{ nodeId: 'sys', output: { event: 'playing', state: true, appId: null } },
-        { nodeId: 'set', output: { value: { event: 'playing', state: true } } }]
+      source: 'automatic',
+      status: 'success',
+      steps: [
+        { nodeId: 'sys', output: { event: 'playing', state: true, appId: null } },
+        { nodeId: 'set', output: { value: { event: 'playing', state: true } } }
+      ]
     })
   })
 
   it('辅助程序分发有效行、上报无效行并在取消订阅后退出', async () => {
     const child = Object.assign(new EventEmitter(), {
-      stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough(), kill: vi.fn()
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      stdin: new PassThrough(),
+      kill: vi.fn()
     })
     mocks.spawn.mockReturnValue(child)
     const report = vi.fn()

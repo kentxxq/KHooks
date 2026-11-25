@@ -39,8 +39,30 @@ export type Run = {
 
 export type Theme = 'light' | 'dark'
 export type ExternalLink = 'releases' | 'changelog'
-export type Settings = { login: boolean; autoCheckUpdate: boolean; aiUrl: string; aiModel: string; hasAiKey: boolean; theme: Theme }
-export type Update = { state: 'disabled' | 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'current' | 'unpublished' | 'installing' | 'error'; version?: string; percent?: number; error?: string }
+export type Settings = {
+  login: boolean
+  autoCheckUpdate: boolean
+  aiUrl: string
+  aiModel: string
+  hasAiKey: boolean
+  theme: Theme
+}
+export type Update = {
+  state:
+    | 'disabled'
+    | 'idle'
+    | 'checking'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'current'
+    | 'unpublished'
+    | 'installing'
+    | 'error'
+  version?: string
+  percent?: number
+  error?: string
+}
 export type Snapshot = {
   workflows: Workflow[]
   components: NodeComponent[]

@@ -4,8 +4,18 @@ import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useToast } from '@nuxt/ui/composables/useToast'
 import type { Connection, XYPosition } from '@xyflow/vue'
 import {
-  busyPolicies, createNode, instantiateComponent, isTrigger, nodeNames, sites, validateConnections, workflowSchema,
-  type FlowEdge, type FlowNode, type NodeComponent, type Workflow
+  busyPolicies,
+  createNode,
+  instantiateComponent,
+  isTrigger,
+  nodeNames,
+  sites,
+  validateConnections,
+  workflowSchema,
+  type FlowEdge,
+  type FlowNode,
+  type NodeComponent,
+  type Workflow
 } from '../../../shared/workflow'
 import { copy, dateTime, desktop, errorMessage, nodeDragType, nodeIcons, useDesktop } from '../model'
 import FlowCanvas from '../components/FlowCanvas.vue'
@@ -30,12 +40,17 @@ const aiReady = computed(() => {
 })
 const busy = computed(() => pending.value !== undefined)
 const nameError = ref('')
-const dirty = computed(() => Boolean(draft.value && saved.value && JSON.stringify(draft.value) !== JSON.stringify(saved.value)))
-const node = computed(() => selection.value.nodes.length === 1
-  ? draft.value?.nodes.find((node) => node.id === selection.value.nodes[0]) : undefined)
+const dirty = computed(() =>
+  Boolean(draft.value && saved.value && JSON.stringify(draft.value) !== JSON.stringify(saved.value))
+)
+const node = computed(() =>
+  selection.value.nodes.length === 1
+    ? draft.value?.nodes.find((node) => node.id === selection.value.nodes[0])
+    : undefined
+)
 const preview = computed(() => previewType.value && createNode(previewType.value, '', 0, 0))
 const hasTrigger = computed(() => draft.value?.nodes.some(isTrigger))
-const canRun = computed(() => saved.value?.enabled ? saved.value.nodes.some(isTrigger) : hasTrigger.value)
+const canRun = computed(() => (saved.value?.enabled ? saved.value.nodes.some(isTrigger) : hasTrigger.value))
 const libraryGroups = [
   { label: '触发器', types: ['manual', 'interval', 'ip', 'fileWatch', 'httpPoll', 'system'] },
   { label: '逻辑', types: ['condition', 'delay', 'data'] },
@@ -50,27 +65,35 @@ const nodeUses: Partial<Record<FlowNode['type'], string>> = {
   notification: '在 Windows 上显示一条系统通知。'
 }
 
-watch(saved, (current, previous) => {
-  if (!current) {
-    draft.value = undefined
-    return
-  }
-  if (current.id !== previous?.id) {
-    nameError.value = ''
-    select('')
-  }
-  if (current.id !== previous?.id || !draft.value || JSON.stringify(draft.value) === JSON.stringify(previous)) {
-    draft.value = copy(current)
-  } else {
-    draft.value.enabled = current.enabled
-  }
-}, { immediate: true })
+watch(
+  saved,
+  (current, previous) => {
+    if (!current) {
+      draft.value = undefined
+      return
+    }
+    if (current.id !== previous?.id) {
+      nameError.value = ''
+      select('')
+    }
+    if (current.id !== previous?.id || !draft.value || JSON.stringify(draft.value) === JSON.stringify(previous)) {
+      draft.value = copy(current)
+    } else {
+      draft.value.enabled = current.enabled
+    }
+  },
+  { immediate: true }
+)
 
-onBeforeRouteLeave(async () => !dirty.value || await askConfirm({
-  title: '未保存的修改',
-  description: '当前流程有未保存的修改，离开后修改将丢失，确定离开？',
-  confirmLabel: '离开'
-}))
+onBeforeRouteLeave(
+  async () =>
+    !dirty.value ||
+    (await askConfirm({
+      title: '未保存的修改',
+      description: '当前流程有未保存的修改，离开后修改将丢失，确定离开？',
+      confirmLabel: '离开'
+    }))
+)
 
 function select(id: string): void {
   previewType.value = undefined
@@ -108,10 +131,13 @@ function addNode(source: FlowNode['type'] | NodeComponent, position?: XYPosition
   const flow = draft.value
   if (!flow || !canAdd(type)) return
   const index = flow.nodes.length
-  const x = position?.x ?? (index ? flow.nodes.reduce((rightmost, node) => Math.max(rightmost, node.x), -Infinity) + 235 : 0)
+  const x =
+    position?.x ?? (index ? flow.nodes.reduce((rightmost, node) => Math.max(rightmost, node.x), -Infinity) + 235 : 0)
   const y = position?.y ?? (index > 0 && index % 3 === 0 ? 125 : 0)
   const id = type + '-' + crypto.randomUUID().slice(0, 8)
-  flow.nodes.push(typeof source === 'string' ? createNode(type, id, x, y) : instantiateComponent(toRaw(source), id, x, y))
+  flow.nodes.push(
+    typeof source === 'string' ? createNode(type, id, x, y) : instantiateComponent(toRaw(source), id, x, y)
+  )
   select(id)
 }
 
@@ -119,7 +145,9 @@ function connect(connection: Connection): void {
   const flow = draft.value
   if (!flow || busy.value) return
   const edge: FlowEdge = {
-    id: crypto.randomUUID(), from: connection.source, to: connection.target,
+    id: crypto.randomUUID(),
+    from: connection.source,
+    to: connection.target,
     port: (connection.sourceHandle ?? 'next') as FlowEdge['port']
   }
   const issue = validateConnections({ ...flow, edges: [...flow.edges, edge] })
@@ -140,7 +168,7 @@ function move(positions: { id: string; x: number; y: number }[]): void {
 
 function changeNode(updated: FlowNode): void {
   if (!draft.value || busy.value) return
-  draft.value.nodes = draft.value.nodes.map((item) => item.id === updated.id ? updated : item)
+  draft.value.nodes = draft.value.nodes.map((item) => (item.id === updated.id ? updated : item))
 }
 
 function openComponentDialog(current: FlowNode): void {
@@ -171,8 +199,9 @@ async function saveComponent(): Promise<void> {
 function removeSelection({ nodes, edges } = selection.value): void {
   if (!draft.value || busy.value) return
   draft.value.nodes = draft.value.nodes.filter((node) => !nodes.includes(node.id))
-  draft.value.edges = draft.value.edges.filter((edge) => !edges.includes(edge.id) &&
-    !nodes.includes(edge.from) && !nodes.includes(edge.to))
+  draft.value.edges = draft.value.edges.filter(
+    (edge) => !edges.includes(edge.id) && !nodes.includes(edge.from) && !nodes.includes(edge.to)
+  )
   select('')
 }
 
@@ -212,11 +241,15 @@ async function perform(action: 'save' | 'enable' | 'disable' | 'run'): Promise<v
 async function reloadWorkflow(): Promise<void> {
   const id = draft.value?.id
   if (!id || busy.value) return
-  if (dirty.value && !await askConfirm({
-    title: '放弃未保存的修改',
-    description: '重新加载将放弃当前未保存的修改，确定继续？',
-    confirmLabel: '重新加载'
-  })) return
+  if (
+    dirty.value &&
+    !(await askConfirm({
+      title: '放弃未保存的修改',
+      description: '重新加载将放弃当前未保存的修改，确定继续？',
+      confirmLabel: '重新加载'
+    }))
+  )
+    return
   pending.value = 'reload'
   try {
     const current = await desktop.getWorkflow(id)
@@ -241,8 +274,12 @@ async function reviseWorkflow(): Promise<void> {
   try {
     const graph = await desktop.revise(aiPrompt.value, copy({ name, nodes, edges }))
     if (draft.value?.id !== current.id) return
-    if (draft.value !== current && (draft.value.name !== name ||
-      JSON.stringify(draft.value.nodes) !== JSON.stringify(nodes) || JSON.stringify(draft.value.edges) !== JSON.stringify(edges))) {
+    if (
+      draft.value !== current &&
+      (draft.value.name !== name ||
+        JSON.stringify(draft.value.nodes) !== JSON.stringify(nodes) ||
+        JSON.stringify(draft.value.edges) !== JSON.stringify(edges))
+    ) {
       throw new Error('流程已更新，请重新提交修改要求')
     }
     draft.value = { ...draft.value, ...graph }
@@ -262,14 +299,24 @@ const nodeSearch = ref('')
 const moreOpen = ref(false)
 const sampleDrawerOpen = ref(false)
 const inspectorDismissed = ref(false)
-const confirmDialog = ref<{ title: string; description: string; confirmLabel: string; resolve: (ok: boolean) => void }>()
-const hasInspectorTarget = computed(() => Boolean(preview.value || node.value || selection.value.nodes.length > 1 || selection.value.edges.length))
+const confirmDialog = ref<{
+  title: string
+  description: string
+  confirmLabel: string
+  resolve: (ok: boolean) => void
+}>()
+const hasInspectorTarget = computed(() =>
+  Boolean(preview.value || node.value || selection.value.nodes.length > 1 || selection.value.edges.length)
+)
 const showInspector = computed(() => !inspectorDismissed.value && (hasInspectorTarget.value || sampleDrawerOpen.value))
 const filteredLibraryGroups = computed(() => {
   const q = nodeSearch.value.trim().toLowerCase()
   if (!q) return libraryGroups
   return libraryGroups
-    .map((group) => ({ ...group, types: group.types.filter((t) => nodeNames[t].toLowerCase().includes(q) || t.toLowerCase().includes(q)) }))
+    .map((group) => ({
+      ...group,
+      types: group.types.filter((t) => nodeNames[t].toLowerCase().includes(q) || t.toLowerCase().includes(q))
+    }))
     .filter((group) => group.types.length > 0)
 })
 const filteredComponents = computed(() => {
@@ -325,27 +372,52 @@ function closeInspector(): void {
           <div v-for="group in filteredLibraryGroups" :key="group.label" class="library-group">
             <h3>{{ group.label }}</h3>
             <div v-for="kind in group.types" :key="kind" class="library-item" :class="{ chosen: previewType === kind }">
-              <button type="button" class="library-preview" :draggable="canAdd(kind)" :aria-pressed="previewType === kind"
-                @click="inspect(kind)" @dragstart="startDrag($event, kind)" @dragend="draggedType = undefined">
-                <span class="node-icon" :class="kind"><UIcon :name="nodeIcons[kind]" mode="svg" /></span>{{ nodeNames[kind] }}
+              <button
+                type="button"
+                class="library-preview"
+                :draggable="canAdd(kind)"
+                :aria-pressed="previewType === kind"
+                @click="inspect(kind)"
+                @dragstart="startDrag($event, kind)"
+                @dragend="draggedType = undefined"
+              >
+                <span class="node-icon" :class="kind"><UIcon :name="nodeIcons[kind]" mode="svg" /></span
+                >{{ nodeNames[kind] }}
               </button>
-              <UButton class="library-add" color="neutral" variant="ghost" size="xs" icon="i-lucide-plus"
-                :aria-label="'添加' + nodeNames[kind]" :disabled="!canAdd(kind)"
-                @click="addNode(kind)" />
+              <UButton
+                class="library-add"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                icon="i-lucide-plus"
+                :aria-label="'添加' + nodeNames[kind]"
+                :disabled="!canAdd(kind)"
+                @click="addNode(kind)"
+              />
             </div>
           </div>
           <div v-if="filteredComponents.length" class="library-group">
             <h3>组件</h3>
             <div v-for="component in filteredComponents" :key="component.id" class="library-item">
               <div class="library-component">
-                <span class="node-icon" :class="component.config.type"><UIcon :name="nodeIcons[component.config.type]" mode="svg" /></span>
+                <span class="node-icon" :class="component.config.type"
+                  ><UIcon :name="nodeIcons[component.config.type]" mode="svg"
+                /></span>
                 <span class="node-titles">
                   <span :title="component.name">{{ component.name }}</span>
                   <small>{{ nodeNames[component.config.type] }}</small>
                 </span>
               </div>
-              <UButton class="library-add" color="neutral" variant="ghost" size="xs" icon="i-lucide-plus"
-                :aria-label="'添加组件 ' + component.name" :disabled="!canAdd(component.config.type)" @click="addNode(component)" />
+              <UButton
+                class="library-add"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                icon="i-lucide-plus"
+                :aria-label="'添加组件 ' + component.name"
+                :disabled="!canAdd(component.config.type)"
+                @click="addNode(component)"
+              />
             </div>
           </div>
         </div>
@@ -357,9 +429,18 @@ function closeInspector(): void {
         <div class="canvas-island canvas-island-left">
           <RouterLink to="/" class="back-link" aria-label="返回流程"><UIcon name="i-lucide-arrow-left" /></RouterLink>
           <div class="editor-name">
-            <UInput id="flow-name" v-model="draft.name" variant="none" size="sm" :disabled="busy" :maxlength="100"
-              aria-label="流程名称" :aria-invalid="Boolean(nameError)" :aria-describedby="nameError ? 'flow-name-error' : undefined"
-              @update:model-value="nameError = ''" />
+            <UInput
+              id="flow-name"
+              v-model="draft.name"
+              variant="none"
+              size="sm"
+              :disabled="busy"
+              :maxlength="100"
+              aria-label="流程名称"
+              :aria-invalid="Boolean(nameError)"
+              :aria-describedby="nameError ? 'flow-name-error' : undefined"
+              @update:model-value="nameError = ''"
+            />
             <p v-if="nameError" id="flow-name-error" class="field-error" role="alert">{{ nameError }}</p>
           </div>
           <span v-if="dirty" class="dirty-pill" title="有未保存修改">未保存</span>
@@ -368,46 +449,133 @@ function closeInspector(): void {
 
         <!-- 右上悬浮胶囊 -->
         <div class="canvas-island canvas-island-right">
-          <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-sparkles" :disabled="busy"
-            @click="aiOpen = true">AI 修改</UButton>
-          <UButton v-if="sample" :color="sampleDrawerOpen && !inspectorDismissed ? 'primary' : 'neutral'"
+          <UButton
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-sparkles"
+            :disabled="busy"
+            @click="aiOpen = true"
+            >AI 修改</UButton
+          >
+          <UButton
+            v-if="sample"
+            :color="sampleDrawerOpen && !inspectorDismissed ? 'primary' : 'neutral'"
             :variant="sampleDrawerOpen && !inspectorDismissed ? 'soft' : 'ghost'"
-            size="sm" icon="i-lucide-history" aria-label="最近一次检测" title="最近一次检测"
-            @click="toggleSampleDrawer" />
-          <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-play" :disabled="busy || !canRun"
-            :loading="pending === 'run'" @click="perform('run')">运行</UButton>
-          <UButton :color="dirty ? 'primary' : 'neutral'" :variant="dirty ? 'soft' : 'outline'" size="sm" icon="i-lucide-save"
-            :disabled="busy || !dirty" @click="perform('save')">保存</UButton>
-          <UButton :color="draft.enabled ? 'neutral' : 'primary'" size="sm"
-            :icon="draft.enabled ? 'i-lucide-pause' : 'i-lucide-power'" :disabled="busy"
-            @click="perform(draft.enabled ? 'disable' : 'enable')">{{ draft.enabled ? '停用' : '启用' }}</UButton>
+            size="sm"
+            icon="i-lucide-history"
+            aria-label="最近一次检测"
+            title="最近一次检测"
+            @click="toggleSampleDrawer"
+          />
+          <UButton
+            color="neutral"
+            variant="outline"
+            size="sm"
+            icon="i-lucide-play"
+            :disabled="busy || !canRun"
+            :loading="pending === 'run'"
+            @click="perform('run')"
+            >运行</UButton
+          >
+          <UButton
+            :color="dirty ? 'primary' : 'neutral'"
+            :variant="dirty ? 'soft' : 'outline'"
+            size="sm"
+            icon="i-lucide-save"
+            :disabled="busy || !dirty"
+            @click="perform('save')"
+            >保存</UButton
+          >
+          <UButton
+            :color="draft.enabled ? 'neutral' : 'primary'"
+            size="sm"
+            :icon="draft.enabled ? 'i-lucide-pause' : 'i-lucide-power'"
+            :disabled="busy"
+            @click="perform(draft.enabled ? 'disable' : 'enable')"
+            >{{ draft.enabled ? '停用' : '启用' }}</UButton
+          >
           <UPopover v-model:open="moreOpen" :content="{ align: 'end', sideOffset: 8 }">
-            <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-sliders-horizontal" aria-label="流程选项" />
+            <UButton
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              icon="i-lucide-sliders-horizontal"
+              aria-label="流程选项"
+            />
             <template #content>
               <div class="more-popover">
                 <div class="more-field">
                   <label>流程忙碌策略</label>
-                  <USelect class="full-width" size="sm" aria-label="流程忙碌策略"
-                    :model-value="draft.busyPolicy ?? 'skip'" :items="busyPolicyOptions" :disabled="busy"
-                    @update:model-value="draft.busyPolicy = $event as Workflow['busyPolicy']" />
+                  <USelect
+                    class="full-width"
+                    size="sm"
+                    aria-label="流程忙碌策略"
+                    :model-value="draft.busyPolicy ?? 'skip'"
+                    :items="busyPolicyOptions"
+                    :disabled="busy"
+                    @update:model-value="draft.busyPolicy = $event as Workflow['busyPolicy']"
+                  />
                 </div>
-                <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-history" class="full-width justify-start"
-                  :to="{ name: 'runs', query: { flow: draft.id } }" @click="moreOpen = false">运行记录</UButton>
-                <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-refresh-cw" class="full-width justify-start"
-                  :disabled="busy" :loading="pending === 'reload'" @click="moreOpen = false; reloadWorkflow()">重新加载</UButton>
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-history"
+                  class="full-width justify-start"
+                  :to="{ name: 'runs', query: { flow: draft.id } }"
+                  @click="moreOpen = false"
+                  >运行记录</UButton
+                >
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-refresh-cw"
+                  class="full-width justify-start"
+                  :disabled="busy"
+                  :loading="pending === 'reload'"
+                  @click="
+                    moreOpen = false;
+                    reloadWorkflow()
+                  "
+                  >重新加载</UButton
+                >
               </div>
             </template>
           </UPopover>
         </div>
 
         <div v-if="selection.nodes.length > 1" class="canvas-selection-bar">
-          <UButton color="error" variant="soft" size="xs" icon="i-lucide-trash-2" :disabled="busy"
-            @click="removeSelection()">删除所选（{{ selection.nodes.length }}）</UButton>
+          <UButton
+            color="error"
+            variant="soft"
+            size="xs"
+            icon="i-lucide-trash-2"
+            :disabled="busy"
+            @click="removeSelection()"
+            >删除所选（{{ selection.nodes.length }}）</UButton
+          >
         </div>
 
-        <FlowCanvas :key="draft.id" :selection="selection" :graph="draft" :readonly="busy" :dragged-type="draggedType"
-          :allow-save-component="!busy" @update:selection="updateSelection" @connect="connect" @move="move" @drop-node="addNode"
-          @pane-click="previewType = undefined; sampleDrawerOpen = false" @remove-selection="removeSelection" @save-component="openComponentDialog" />
+        <FlowCanvas
+          :key="draft.id"
+          :selection="selection"
+          :graph="draft"
+          :readonly="busy"
+          :dragged-type="draggedType"
+          :allow-save-component="!busy"
+          @update:selection="updateSelection"
+          @connect="connect"
+          @move="move"
+          @drop-node="addNode"
+          @pane-click="
+            previewType = undefined;
+            sampleDrawerOpen = false
+          "
+          @remove-selection="removeSelection"
+          @save-component="openComponentDialog"
+        />
       </section>
 
       <!-- 右侧配置侧栏（与左侧节点侧栏统一风格） -->
@@ -415,13 +583,23 @@ function closeInspector(): void {
         <div class="panel-title">
           <UIcon name="i-lucide-sliders-horizontal" />
           <span>{{ sampleDrawerOpen && !hasInspectorTarget ? '最近一次检测' : '节点配置' }}</span>
-          <UButton class="ml-auto" color="neutral" variant="ghost" size="xs" icon="i-lucide-x"
-            aria-label="关闭配置面板" @click="closeInspector" />
+          <UButton
+            class="ml-auto"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            icon="i-lucide-x"
+            aria-label="关闭配置面板"
+            @click="closeInspector"
+          />
         </div>
         <div class="inspector-scroll">
           <div v-if="preview" class="inspector-content">
             <div class="section-row">
-              <h2><span class="node-icon" :class="preview.type"><UIcon :name="nodeIcons[preview.type]" mode="svg" /></span>{{ nodeNames[preview.type] }}</h2>
+              <h2>
+                <span class="node-icon" :class="preview.type"><UIcon :name="nodeIcons[preview.type]" mode="svg" /></span
+                >{{ nodeNames[preview.type] }}
+              </h2>
               <span class="muted">预览</span>
             </div>
             <p v-if="nodeUses[preview.type]" class="node-use">{{ nodeUses[preview.type] }}</p>
@@ -429,14 +607,29 @@ function closeInspector(): void {
           </div>
           <div v-else-if="node" class="inspector-content">
             <div class="section-row">
-              <h2><span class="node-icon" :class="node.type"><UIcon :name="nodeIcons[node.type]" mode="svg" /></span>{{ nodeNames[node.type] }}</h2>
-              <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除节点"
-                :disabled="busy" @click="removeSelection()" />
+              <h2>
+                <span class="node-icon" :class="node.type"><UIcon :name="nodeIcons[node.type]" mode="svg" /></span
+                >{{ nodeNames[node.type] }}
+              </h2>
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                aria-label="删除节点"
+                :disabled="busy"
+                @click="removeSelection()"
+              />
             </div>
             <div class="fields node-name-field">
               <label for="node-name">节点名称</label>
-              <UInput id="node-name" :model-value="node.name ?? ''" :maxlength="100" :disabled="busy"
-                class="full-width" @update:model-value="changeNode({ ...node, name: String($event) || undefined })" />
+              <UInput
+                id="node-name"
+                :model-value="node.name ?? ''"
+                :maxlength="100"
+                :disabled="busy"
+                class="full-width"
+                @update:model-value="changeNode({ ...node, name: String($event) || undefined })"
+              />
             </div>
             <NodeConfig :key="node.id" :node="node" :graph="draft" :readonly="busy" @change="changeNode" />
           </div>
@@ -444,65 +637,130 @@ function closeInspector(): void {
             <h2>已选中 {{ selection.nodes.length }} 个节点</h2>
           </div>
           <div v-else-if="selection.edges.length" class="inspector-content">
-            <div class="section-row"><h2>{{ selection.edges.length === 1 ? '连线' : '已选中 ' + selection.edges.length + ' 条连线' }}</h2>
-              <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" aria-label="删除连线"
-                :disabled="busy" @click="removeSelection()" />
+            <div class="section-row">
+              <h2>{{ selection.edges.length === 1 ? '连线' : '已选中 ' + selection.edges.length + ' 条连线' }}</h2>
+              <UButton
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                aria-label="删除连线"
+                :disabled="busy"
+                @click="removeSelection()"
+              />
             </div>
           </div>
           <div v-if="sample" class="inspector-content sample" data-testid="latest-ip">
-            <div class="section-row"><h2>最近一次检测</h2><span class="muted">{{ dateTime(sample.checkedAt) }}</span></div>
+            <div class="section-row">
+              <h2>最近一次检测</h2>
+              <span class="muted">{{ dateTime(sample.checkedAt) }}</span>
+            </div>
             <dl class="sample-metrics">
-              <div><dt>现在的 IP</dt><dd>{{ sample.winnerIp ?? '未确定' }}</dd></div>
-              <div><dt>之前的 IP</dt><dd>{{ sample.previousIp ?? '—' }}</dd></div>
-              <div><dt>不同 IP 数量</dt><dd>{{ sample.distinctIpCount }}</dd></div>
+              <div>
+                <dt>现在的 IP</dt>
+                <dd>{{ sample.winnerIp ?? '未确定' }}</dd>
+              </div>
+              <div>
+                <dt>之前的 IP</dt>
+                <dd>{{ sample.previousIp ?? '—' }}</dd>
+              </div>
+              <div>
+                <dt>不同 IP 数量</dt>
+                <dd>{{ sample.distinctIpCount }}</dd>
+              </div>
             </dl>
             <div v-for="result in sample.results" :key="result.id" class="sample-row">
               <span>{{ sites[result.id].name }}</span>
               <code v-if="result.ip">{{ result.ip }}</code>
-              <button v-else type="button" class="error-text" :aria-label="'查看 ' + sites[result.id].name + ' 的错误'"
-                @click="toast.add({ title: result.error, color: 'error' })">查看错误</button>
+              <button
+                v-else
+                type="button"
+                class="error-text"
+                :aria-label="'查看 ' + sites[result.id].name + ' 的错误'"
+                @click="toast.add({ title: result.error, color: 'error' })"
+              >
+                查看错误
+              </button>
             </div>
           </div>
         </div>
       </aside>
     </div>
-    <UModal :open="aiOpen" title="AI 修改流程" :close="!busy" :dismissible="!busy"
-      @update:open="!busy && (aiOpen = $event)">
+    <UModal
+      :open="aiOpen"
+      title="AI 修改流程"
+      :close="!busy"
+      :dismissible="!busy"
+      @update:open="!busy && (aiOpen = $event)"
+    >
       <template #body>
         <form id="revise-workflow-form" class="fields" @submit.prevent="reviseWorkflow">
           <label for="revise-workflow-prompt">修改要求</label>
-          <UTextarea id="revise-workflow-prompt" v-model="aiPrompt" :rows="4" :maxlength="8000"
-            :disabled="busy" class="full-width" />
+          <UTextarea
+            id="revise-workflow-prompt"
+            v-model="aiPrompt"
+            :rows="4"
+            :maxlength="8000"
+            :disabled="busy"
+            class="full-width"
+          />
         </form>
       </template>
       <template #footer>
         <RouterLink v-if="!aiReady" to="/settings" class="text-link">配置 AI 服务</RouterLink>
         <UButton color="neutral" variant="outline" :disabled="busy" @click="aiOpen = false">取消</UButton>
-        <UButton type="submit" form="revise-workflow-form" :disabled="busy || !aiReady || !aiPrompt.trim()"
-          :loading="pending === 'revise'">发送草稿给 AI 修改</UButton>
+        <UButton
+          type="submit"
+          form="revise-workflow-form"
+          :disabled="busy || !aiReady || !aiPrompt.trim()"
+          :loading="pending === 'revise'"
+          >发送草稿给 AI 修改</UButton
+        >
       </template>
     </UModal>
-    <UModal :open="Boolean(componentDraft)" title="另存为组件" :close="!busy" :dismissible="!busy"
-      @update:open="!$event && closeComponentDialog()">
+    <UModal
+      :open="Boolean(componentDraft)"
+      title="另存为组件"
+      :close="!busy"
+      :dismissible="!busy"
+      @update:open="!$event && closeComponentDialog()"
+    >
       <template #body>
         <form v-if="componentDraft" id="component-form" class="fields" @submit.prevent="saveComponent">
           <label for="component-name">组件名称</label>
-          <UInput id="component-name" v-model="componentDraft.name" :maxlength="100" :disabled="busy" class="full-width" />
+          <UInput
+            id="component-name"
+            v-model="componentDraft.name"
+            :maxlength="100"
+            :disabled="busy"
+            class="full-width"
+          />
         </form>
       </template>
       <template #footer>
         <UButton color="neutral" variant="outline" :disabled="busy" @click="closeComponentDialog">取消</UButton>
-        <UButton type="submit" form="component-form" :disabled="!componentDraft?.name.trim() || busy"
-          :loading="pending === 'component'">保存组件</UButton>
+        <UButton
+          type="submit"
+          form="component-form"
+          :disabled="!componentDraft?.name.trim() || busy"
+          :loading="pending === 'component'"
+          >保存组件</UButton
+        >
       </template>
     </UModal>
-    <UModal :open="Boolean(confirmDialog)" :title="confirmDialog?.title" :description="confirmDialog?.description"
-      @update:open="!$event && resolveConfirm(false)">
+    <UModal
+      :open="Boolean(confirmDialog)"
+      :title="confirmDialog?.title"
+      :description="confirmDialog?.description"
+      @update:open="!$event && resolveConfirm(false)"
+    >
       <template #footer>
         <UButton color="neutral" variant="outline" @click="resolveConfirm(false)">取消</UButton>
         <UButton color="error" @click="resolveConfirm(true)">{{ confirmDialog?.confirmLabel }}</UButton>
       </template>
     </UModal>
   </main>
-  <main v-else class="page"><h1>流程不存在</h1><RouterLink to="/" class="text-link">返回流程</RouterLink></main>
+  <main v-else class="page">
+    <h1>流程不存在</h1>
+    <RouterLink to="/" class="text-link">返回流程</RouterLink>
+  </main>
 </template>

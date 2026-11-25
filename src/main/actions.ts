@@ -11,8 +11,10 @@ type Outputs = Record<string, unknown>
 
 function convert(value: unknown, mode: 'keep' | 'text' | 'number' | 'boolean'): unknown {
   switch (mode) {
-    case 'keep': return value
-    case 'text': return typeof value === 'string' ? value : JSON.stringify(value)
+    case 'keep':
+      return value
+    case 'text':
+      return typeof value === 'string' ? value : JSON.stringify(value)
     case 'number': {
       if (typeof value === 'number' && Number.isFinite(value)) return value
       if (typeof value === 'boolean') return Number(value)
@@ -43,7 +45,9 @@ async function readLocalFile(path: string, signal: AbortSignal): Promise<string>
 }
 
 export async function executeAction(
-  node: Action, outputs: Outputs, signal: AbortSignal,
+  node: Action,
+  outputs: Outputs,
+  signal: AbortSignal,
   services: { fetcher: Fetch; ai: () => AiOptions; notify: (title: string, body: string) => void },
   trace: Pick<RunStep, 'details' | 'notification'>
 ): Promise<unknown> {
@@ -57,25 +61,37 @@ export async function executeAction(
       const details: NonNullable<RunStep['details']> = { method: node.method }
       trace.details = details
       let url: URL
-      try { url = parseHttpUrl(renderTemplate(node.url, outputs)) } catch { throw new Error('HTTP 请求地址无效') }
+      try {
+        url = parseHttpUrl(renderTemplate(node.url, outputs))
+      } catch {
+        throw new Error('HTTP 请求地址无效')
+      }
       details.host = url.host
       let headers: Headers
       try {
         headers = new Headers(node.headers.map(({ name, value }) => [name, renderTemplate(value, outputs)]))
-      } catch { throw new Error('HTTP 请求头无效') }
+      } catch {
+        throw new Error('HTTP 请求头无效')
+      }
       let body: string | undefined
       if (node.body && node.method !== 'GET' && node.method !== 'HEAD') {
         body = JSON.stringify(renderJson(JSON.parse(node.body), outputs))
         if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
       }
       return fetchData(services.fetcher, url, { method: node.method, headers, body }, signal, {
-        onStatus: (status) => { details.status = status }
+        onStatus: (status) => {
+          details.status = status
+        }
       })
     }
     case 'data':
-      return { value: node.mapping ? Object.fromEntries(node.mapping.map((field) => [
-        field.key.trim(), convert(renderJson(field.value, outputs), field.convert)
-      ])) : renderJson(JSON.parse(node.value), outputs) }
+      return {
+        value: node.mapping
+          ? Object.fromEntries(
+              node.mapping.map((field) => [field.key.trim(), convert(renderJson(field.value, outputs), field.convert)])
+            )
+          : renderJson(JSON.parse(node.value), outputs)
+      }
     case 'notification': {
       delete trace.notification
       const title = renderTemplate(node.title, outputs)
@@ -97,11 +113,16 @@ export async function executeAction(
         const content = await readLocalFile(path, signal)
         return { path, content: node.format === 'json' ? parseFileJson(content.replace(/^\uFEFF/, '')) : content }
       }
-      const value = node.format === 'json'
-        ? JSON.stringify(renderJson(parseFileJson(node.content), outputs))
-        : renderTemplate(node.content, outputs)
+      const value =
+        node.format === 'json'
+          ? JSON.stringify(renderJson(parseFileJson(node.content), outputs))
+          : renderTemplate(node.content, outputs)
       signal.throwIfAborted()
-      try { await writeFileAtomic(path, value, { encoding: 'utf8' }) } catch { throw new Error('无法写入文件') }
+      try {
+        await writeFileAtomic(path, value, { encoding: 'utf8' })
+      } catch {
+        throw new Error('无法写入文件')
+      }
       return { path, bytes: Buffer.byteLength(value) }
     }
     case 'llm': {
@@ -111,7 +132,9 @@ export async function executeAction(
       if (!prompt.trim()) throw new Error('用户提示为空')
       const ai = services.ai()
       details.model = ai.model
-      return { value: await runLlm(ai, renderTemplate(node.system, outputs), prompt, node.format, services.fetcher, signal) }
+      return {
+        value: await runLlm(ai, renderTemplate(node.system, outputs), prompt, node.format, services.fetcher, signal)
+      }
     }
     case 'delay': {
       await wait(node.seconds * 1000, undefined, { signal })
@@ -121,5 +144,9 @@ export async function executeAction(
 }
 
 function parseFileJson(value: string): unknown {
-  try { return JSON.parse(value) } catch { throw new Error('文件内容不是有效的 JSON') }
+  try {
+    return JSON.parse(value)
+  } catch {
+    throw new Error('文件内容不是有效的 JSON')
+  }
 }

@@ -1,4 +1,18 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, powerMonitor, safeStorage, shell, Tray } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  net,
+  Notification,
+  powerMonitor,
+  safeStorage,
+  shell,
+  Tray
+} from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { mkdirSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -13,7 +27,12 @@ import { startWorkflowCli } from './workflow-cli'
 import { componentSchema, graphSchema, parseHttpUrl, siteConfig, zodMessage } from '../shared/workflow'
 import type { Desktop, Invocation, Settings, Theme, Update } from '../shared/ipc'
 import {
-  appUserModelId, developmentAppUserModelId, developmentProductName, productName, releaseLinks, windowsDevelopmentRuntimePrefix
+  appUserModelId,
+  developmentAppUserModelId,
+  developmentProductName,
+  productName,
+  releaseLinks,
+  windowsDevelopmentRuntimePrefix
 } from '../shared/app-identity'
 import productionIconPath from '../../resources/icon.png?asset'
 import developmentIconPath from '../../resources/icon-dev.png?asset'
@@ -22,10 +41,15 @@ const development = !app.isPackaged
 const iconPath = development ? developmentIconPath : productionIconPath
 const appTitle = development ? developmentProductName : productName
 const windows = process.platform === 'win32'
-const brandedDevelopment = development && windows && basename(dirname(process.execPath)).startsWith(windowsDevelopmentRuntimePrefix)
+const brandedDevelopment =
+  development && windows && basename(dirname(process.execPath)).startsWith(windowsDevelopmentRuntimePrefix)
 const developmentToastActivator = '{975DC2E3-03CD-45F9-8722-5F84033FB290}'
 const requestedProfile = app.commandLine.getSwitchValue('user-data-dir')
-const profile = requestedProfile ? resolve(requestedProfile) : development ? join(app.getPath('appData'), appTitle) : undefined
+const profile = requestedProfile
+  ? resolve(requestedProfile)
+  : development
+    ? join(app.getPath('appData'), appTitle)
+    : undefined
 
 if (profile) {
   mkdirSync(profile, { recursive: true })
@@ -64,16 +88,30 @@ function getAiOptions() {
   return { url, model, key: decryptAiKey(encryptedKey) }
 }
 
-const engine = new Engine(store, fetcher, console.error, (title, body) => {
-  if (windows && development && !brandedDevelopment) {
-    throw new Error('请通过项目的开发命令启动 KHooks 后再发送 Windows 通知')
-  }
-  if (!Notification.isSupported()) throw new Error('系统通知不可用')
-  new Notification({ title, body, icon: iconPath }).show()
-}, getAiOptions, windows ? new WindowsEvents(join(
-  development ? join(app.getAppPath(), 'debug', 'tmpfile-AI-windows-events') : join(process.resourcesPath, 'windows-events'),
-  'WindowsEvents.exe'
-), console.error) : undefined)
+const engine = new Engine(
+  store,
+  fetcher,
+  console.error,
+  (title, body) => {
+    if (windows && development && !brandedDevelopment) {
+      throw new Error('请通过项目的开发命令启动 KHooks 后再发送 Windows 通知')
+    }
+    if (!Notification.isSupported()) throw new Error('系统通知不可用')
+    new Notification({ title, body, icon: iconPath }).show()
+  },
+  getAiOptions,
+  windows
+    ? new WindowsEvents(
+        join(
+          development
+            ? join(app.getAppPath(), 'debug', 'tmpfile-AI-windows-events')
+            : join(process.resourcesPath, 'windows-events'),
+          'WindowsEvents.exe'
+        ),
+        console.error
+      )
+    : undefined
+)
 const workflows = new Workflows(store, engine)
 const loginArgs = ['--hidden']
 
@@ -97,10 +135,19 @@ function prepareWindowsNotifications(): void {
     }
     try {
       let existing: Electron.ShortcutDetails | undefined
-      try { existing = shell.readShortcutLink(shortcut) } catch { /* 首次启动时尚未创建快捷方式 */ }
-      if (existing?.target !== options.target || existing.cwd !== options.cwd || existing.args !== options.args ||
-          existing.icon !== options.icon || existing.appUserModelId !== options.appUserModelId ||
-          existing.toastActivatorClsid?.toUpperCase() !== options.toastActivatorClsid) {
+      try {
+        existing = shell.readShortcutLink(shortcut)
+      } catch {
+        /* 首次启动时尚未创建快捷方式 */
+      }
+      if (
+        existing?.target !== options.target ||
+        existing.cwd !== options.cwd ||
+        existing.args !== options.args ||
+        existing.icon !== options.icon ||
+        existing.appUserModelId !== options.appUserModelId ||
+        existing.toastActivatorClsid?.toUpperCase() !== options.toastActivatorClsid
+      ) {
         mkdirSync(dirname(shortcut), { recursive: true })
         if (!shell.writeShortcutLink(shortcut, options)) throw new Error('无法注册开发版通知快捷方式')
       }
@@ -122,7 +169,10 @@ function getSettings(): Settings {
   return {
     login: app.isPackaged && app.getLoginItemSettings({ args: loginArgs }).openAtLogin,
     autoCheckUpdate: store.state.autoCheckUpdate,
-    aiUrl: ai.url, aiModel: ai.model, hasAiKey: Boolean(ai.encryptedKey), theme: store.state.theme
+    aiUrl: ai.url,
+    aiModel: ai.model,
+    hasAiKey: Boolean(ai.encryptedKey),
+    theme: store.state.theme
   }
 }
 
@@ -145,13 +195,20 @@ function openWindow(routePath?: string): void {
 function createWindow(show: boolean, routePath?: string): void {
   const main = new BrowserWindow({
     title: appTitle,
-    width: 1440, height: 900, minWidth: 980, minHeight: 660,
-    show: false, backgroundColor: windowBackground[store.state.theme], icon: iconPath,
+    width: 1440,
+    height: 900,
+    minWidth: 980,
+    minHeight: 660,
+    show: false,
+    backgroundColor: windowBackground[store.state.theme],
+    icon: iconPath,
     titleBarStyle: 'hidden',
     ...(windows ? { titleBarOverlay: titleBarOverlay(store.state.theme) } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true, sandbox: true, nodeIntegration: false
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false
     }
   })
   window = main
@@ -169,7 +226,9 @@ function createWindow(show: boolean, routePath?: string): void {
     event.preventDefault()
     main.hide()
   })
-  main.on('closed', () => { window = undefined })
+  main.on('closed', () => {
+    window = undefined
+  })
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (!app.isPackaged && devUrl) void main.loadURL(devUrl)
   else void main.loadFile(join(__dirname, '../renderer/index.html'))
@@ -217,8 +276,10 @@ function reportUpdateError(cause: Error & { code?: string }): void {
     if (update.state !== 'downloaded') setUpdate({ state: 'idle' })
     return
   }
-  if (cause.code === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' ||
-      (cause.code === 'ERR_XML_MISSED_ELEMENT' && cause.message === 'No published versions on GitHub')) {
+  if (
+    cause.code === 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' ||
+    (cause.code === 'ERR_XML_MISSED_ELEMENT' && cause.message === 'No published versions on GitHub')
+  ) {
     setUpdate({ state: 'unpublished' })
   } else {
     const messages: Partial<Record<Update['state'], string>> = {
@@ -226,17 +287,22 @@ function reportUpdateError(cause: Error & { code?: string }): void {
       downloading: '无法下载更新，请检查网络后重试',
       installing: '无法启动更新安装程序'
     }
-    const error = cause.code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND'
-      ? '正式版本缺少更新文件'
-      : messages[update.state] ?? '更新失败'
+    const error =
+      cause.code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND'
+        ? '正式版本缺少更新文件'
+        : (messages[update.state] ?? '更新失败')
     setUpdate({ state: 'error', error })
   }
 }
 
 function runBackgroundUpdateCheck(): void {
   if (!app.isPackaged || !store.state.autoCheckUpdate || draining) return
-  if (update.state === 'checking' || update.state === 'downloading' ||
-      update.state === 'downloaded' || update.state === 'installing') {
+  if (
+    update.state === 'checking' ||
+    update.state === 'downloading' ||
+    update.state === 'downloaded' ||
+    update.state === 'installing'
+  ) {
     return
   }
   backgroundUpdate = true
@@ -297,7 +363,9 @@ function configureUpdater(): void {
 function registerIpc(): void {
   const idSchema = z.string().regex(/^[\w-]{1,80}$/)
   const aiInput = z.strictObject({
-    aiUrl: z.string().max(1000), aiModel: z.string().trim().max(200), aiKey: z.string().max(4000).optional()
+    aiUrl: z.string().max(1000),
+    aiModel: z.string().trim().max(200),
+    aiKey: z.string().max(4000).optional()
   })
   const settingsInput = aiInput.extend({ login: z.boolean() })
   const aiPrompt = z.string().trim().min(1).max(8000)
@@ -311,15 +379,21 @@ function registerIpc(): void {
     })
   }
   bind('snapshot', async () => ({
-    workflows: store.state.workflows, samples: store.state.samples, runs: store.state.runs,
+    workflows: store.state.workflows,
+    samples: store.state.samples,
+    runs: store.state.runs,
     components: store.state.components,
-    settings: getSettings(), update, version: app.getVersion()
+    settings: getSettings(),
+    update,
+    version: app.getVersion()
   }))
   bind('save', (flow) => workflows.save(flow))
   bind('getWorkflow', async (id) => workflows.get(idSchema.parse(id)))
   bind('saveComponent', async (input) => {
     const component = componentSchema.parse({ ...input, id: randomUUID() })
-    await store.change((state) => { state.components.push(component) })
+    await store.change((state) => {
+      state.components.push(component)
+    })
   })
   bind('remove', (id) => engine.remove(idSchema.parse(id)))
   bind('enable', (id, enabled) => engine.enable(idSchema.parse(id), z.boolean().parse(enabled)))
@@ -331,7 +405,9 @@ function registerIpc(): void {
       const result = await dialog.showSaveDialog(window, { title: '选择写入路径' })
       return result.filePath
     }
-    const result = await dialog.showOpenDialog(window, { properties: [target === 'file' ? 'openFile' : 'openDirectory'] })
+    const result = await dialog.showOpenDialog(window, {
+      properties: [target === 'file' ? 'openFile' : 'openDirectory']
+    })
     return result.filePaths[0]
   })
   bind('probe', (config) => probe(siteConfig.parse(config), fetcher))
@@ -359,14 +435,18 @@ function registerIpc(): void {
   })
   bind('setTheme', async (value) => {
     const theme = z.enum(['light', 'dark']).parse(value)
-    await store.change((state) => { state.theme = theme })
+    await store.change((state) => {
+      state.theme = theme
+    })
     nativeTheme.themeSource = store.state.theme
     window?.setBackgroundColor(windowBackground[store.state.theme])
     if (windows) window?.setTitleBarOverlay(titleBarOverlay(store.state.theme))
   })
   bind('setAutoCheckUpdate', async (value) => {
     const enabled = z.boolean().parse(value)
-    await store.change((state) => { state.autoCheckUpdate = enabled })
+    await store.change((state) => {
+      state.autoCheckUpdate = enabled
+    })
     syncUpdateSchedule(enabled)
     notify()
   })
@@ -435,38 +515,54 @@ function registerIpc(): void {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => { if (tray && !draining) openWindow() })
-  app.on('activate', () => { if (tray && !draining) openWindow() })
+  app.on('second-instance', () => {
+    if (tray && !draining) openWindow()
+  })
+  app.on('activate', () => {
+    if (tray && !draining) openWindow()
+  })
   app.on('before-quit', (event) => {
     if (quitting || !tray) return
     event.preventDefault()
     void quit()
   })
-  void app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null)
-    await store.open()
-    prepareWindowsNotifications()
-    nativeTheme.themeSource = store.state.theme
-    registerIpc()
-    tray = new Tray(nativeImage.createFromPath(iconPath))
-    tray.setToolTip(appTitle)
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: '打开', click: () => openWindow() },
-      { type: 'separator' },
-      { label: '退出', click: () => { void quit() } }
-    ]))
-    tray.on('double-click', () => openWindow())
-    if (!process.argv.includes('--hidden')) openWindow()
-    powerMonitor.on('suspend', () => engine.stop())
-    powerMonitor.on('resume', () => { if (!draining) engine.start(false) })
-    engine.start()
-    workflowCli = startWorkflowCli(app.getPath('userData'), workflows, console.error).catch((cause: unknown) => {
-      console.error('无法启动工作流 CLI', cause)
-      return undefined
+  void app
+    .whenReady()
+    .then(async () => {
+      Menu.setApplicationMenu(null)
+      await store.open()
+      prepareWindowsNotifications()
+      nativeTheme.themeSource = store.state.theme
+      registerIpc()
+      tray = new Tray(nativeImage.createFromPath(iconPath))
+      tray.setToolTip(appTitle)
+      tray.setContextMenu(
+        Menu.buildFromTemplate([
+          { label: '打开', click: () => openWindow() },
+          { type: 'separator' },
+          {
+            label: '退出',
+            click: () => {
+              void quit()
+            }
+          }
+        ])
+      )
+      tray.on('double-click', () => openWindow())
+      if (!process.argv.includes('--hidden')) openWindow()
+      powerMonitor.on('suspend', () => engine.stop())
+      powerMonitor.on('resume', () => {
+        if (!draining) engine.start(false)
+      })
+      engine.start()
+      workflowCli = startWorkflowCli(app.getPath('userData'), workflows, console.error).catch((cause: unknown) => {
+        console.error('无法启动工作流 CLI', cause)
+        return undefined
+      })
+      configureUpdater()
     })
-    configureUpdater()
-  }).catch(() => {
-    dialog.showErrorBox(appTitle, '无法打开本地数据或启动应用。')
-    app.exit(1)
-  })
+    .catch(() => {
+      dialog.showErrorBox(appTitle, '无法打开本地数据或启动应用。')
+      app.exit(1)
+    })
 }

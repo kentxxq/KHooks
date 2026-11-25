@@ -14,11 +14,14 @@ export default defineConfig(async ({ command }) => {
     renderer: {
       // 让编辑器和 @ 候选菜单共享 ProseMirror 的装饰对象类型。
       optimizeDeps: { include: ['@tiptap/pm/view', '@tiptap/suggestion'] },
-      plugins: [vue(), ui({
-        colorMode: false,
-        icon: { clientBundle: { scan: true, icons: Object.values(nodeIcons) } },
-        theme: { colors: ['primary', 'error', 'warning', 'success'] }
-      })]
+      plugins: [
+        vue(),
+        ui({
+          colorMode: false,
+          icon: { clientBundle: { scan: true, icons: Object.values(nodeIcons) } },
+          theme: { colors: ['primary', 'error', 'warning', 'success'] }
+        })
+      ]
     }
   }
 })
