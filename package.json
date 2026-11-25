@@ -1,7 +1,7 @@
 {
   "name": "khooks",
   "productName": "KHooks",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "private": true,
   "packageManager": "pnpm@12.21.0",
   "main": "./out/main/index.js",
@@ -12,7 +12,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "build:windows-events": "dotnet publish native/windows-events/WindowsEvents.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None --artifacts-path debug/tmpfile-AI-dotnet -o debug/tmpfile-AI-windows-events",
+    "build:windows-events": "cargo build --manifest-path native/windows-events/Cargo.toml --release --target-dir debug/tmpfile-AI-rust && node -e \"const fs = require('node:fs'); fs.mkdirSync('debug/tmpfile-AI-windows-events', { recursive: true }); fs.copyFileSync('debug/tmpfile-AI-rust/release/WindowsEvents.exe', 'debug/tmpfile-AI-windows-events/WindowsEvents.exe')\"",
     "package:win": "vp run build:windows-events && electron-builder --win nsis --x64 --publish never"
   },
   "dependencies": {

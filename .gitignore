@@ -5,3 +5,4 @@ debug/
 auto-imports.d.ts
 components.d.ts
 .zcode/
+native/windows-events/target/
