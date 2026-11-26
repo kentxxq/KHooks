@@ -7,7 +7,7 @@ export const sites = {
   ipip: { name: 'IPIP.NET', text: 'https://myip.ipip.net/', ipPattern: /^当前 IP[：:]\s*(\S+)/ },
   pconline: { name: '太平洋网络', json: 'https://whois.pconline.com.cn/ipJson.jsp?json=true' },
   oray: { name: '贝锐花生壳', text: 'https://ddns.oray.com/checkip', ipPattern: /^Current IP Address:\s*(\S+)/ },
-  kentxxq: { name: 'uni.kentxxq.com', json: 'https://uni.kentxxq.com/ip' },
+  kentxxq: { name: 'uni.kentxxq.com', json: 'https://uni.kentxxq.com/tools/ip' },
   tencent: { name: '腾讯视频', text: 'https://vv.video.qq.com/checktime', ipPattern: /<ip>\s*([^<\s]+)\s*<\/ip>/ }
 } as const
 
